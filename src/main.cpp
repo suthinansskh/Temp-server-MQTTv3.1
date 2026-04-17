@@ -55,7 +55,7 @@ const unsigned long OTA_CHECK_INTERVAL = 300000; // 5 minutes — HTTP OTA check
 
 // --- HTTP OTA CONFIG ---
 const char* OTA_URL = "http://14.11.0.85/Drug/AutoPrint/IOT/firmware.bin";
-const char* FW_VERSION = "7.0.0";
+const char* FW_VERSION = "7.0.1";
 
 // --- HARDWARE SETUP ---
 // Pin mapping: D1=5, D2=4, D3=0, D4=2, D5=14, D6=12, D7=13
