@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Device View — Sisaket Hospital IoT</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC" crossorigin="anonymous"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Outfit', sans-serif; background: #0f172a; color: #f8fafc; }
+    .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .status-ok     { background: #22c55e; box-shadow: 0 0 12px #22c55e66; }
+    .status-warn   { background: #eab308; box-shadow: 0 0 12px #eab30866; }
+    .status-crit   { background: #ef4444; box-shadow: 0 0 12px #ef444466; }
+    .status-offline{ background: #64748b; box-shadow: 0 0 12px #64748b44; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn .4s ease-out; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+  <div class="max-w-5xl mx-auto">
+
+    <!-- Back link -->
+    <a href="/" class="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-cyan-400 mb-6 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      Back to Dashboard
+    </a>
+
+    <!-- Loading state -->
+    <div id="loading" class="flex items-center justify-center h-64">
+      <div class="text-center">
+        <div class="inline-block w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-slate-400 text-sm">Loading device...</p>
+      </div>
+    </div>
+
+    <!-- Error state -->
+    <div id="error-panel" class="hidden glass rounded-3xl p-10 text-center fade-in">
+      <div class="text-5xl mb-4">⚠️</div>
+      <h2 class="text-xl font-bold text-red-400 mb-2">Device Not Found</h2>
+      <p id="error-msg" class="text-slate-400 text-sm mb-6">The requested device does not exist.</p>
+      <a href="/" class="inline-block bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2 rounded-xl text-sm font-bold transition-colors">Go to Dashboard</a>
+    </div>
+
+    <!-- Device view (hidden until loaded) -->
+    <div id="device-view" class="hidden fade-in space-y-6">
+
+      <!-- Header card -->
+      <div class="glass rounded-3xl p-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-3 mb-1">
+              <h1 id="dev-name" class="text-3xl font-bold text-white">—</h1>
+              <span id="dev-status" class="px-3 py-1 text-[10px] font-bold uppercase rounded-full bg-slate-700 text-white tracking-wider">—</span>
+            </div>
+            <p class="text-sm text-slate-400 font-mono">
+              <span id="dev-id">—</span> &middot; IP: <span id="dev-ip">—</span>
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span id="dev-zone" class="bg-cyan-900/40 text-cyan-400 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest border border-cyan-500/20">—</span>
+            <button id="btn-open-ip" onclick="openDeviceIP()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-xl text-xs font-bold transition-colors border border-slate-600 flex items-center gap-2">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+              Open Device
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div class="glass rounded-2xl p-4 text-center">
+          <div class="text-[9px] text-slate-500 font-bold uppercase mb-1">Current</div>
+          <div id="stat-temp" class="text-3xl font-bold text-cyan-400 tabular-nums">—°C</div>
+        </div>
+        <div class="glass rounded-2xl p-4 text-center">
+          <div class="text-[9px] text-slate-500 font-bold uppercase mb-1">Safe Range</div>
+          <div id="stat-range" class="text-lg font-bold text-slate-300 tabular-nums">—</div>
+        </div>
+        <div class="glass rounded-2xl p-4 text-center">
+          <div class="text-[9px] text-slate-500 font-bold uppercase mb-1">RSSI</div>
+          <div id="stat-rssi" class="text-lg font-bold text-slate-300 tabular-nums">—</div>
+        </div>
+        <div class="glass rounded-2xl p-4 text-center">
+          <div class="text-[9px] text-slate-500 font-bold uppercase mb-1">Firmware</div>
+          <div id="stat-fw" class="text-lg font-bold text-slate-300 tabular-nums">—</div>
+        </div>
+        <div class="glass rounded-2xl p-4 text-center">
+          <div class="text-[9px] text-slate-500 font-bold uppercase mb-1">Last Seen</div>
+          <div id="stat-seen" class="text-sm font-bold text-slate-300 tabular-nums leading-snug">—</div>
+        </div>
+      </div>
+
+      <!-- Chart section -->
+      <div class="glass rounded-3xl p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-bold text-white">Temperature History</h2>
+          <div class="flex gap-2" id="range-bar">
+            <button onclick="loadTelemetry('1h')"  class="range-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-700/50 text-slate-400 border border-transparent hover:border-slate-500 transition-all">1H</button>
+            <button onclick="loadTelemetry('24h')" class="range-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 transition-all">24H</button>
+            <button onclick="loadTelemetry('48h')" class="range-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-700/50 text-slate-400 border border-transparent hover:border-slate-500 transition-all">48H</button>
+            <button onclick="loadTelemetry('7d')"  class="range-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-700/50 text-slate-400 border border-transparent hover:border-slate-500 transition-all">7D</button>
+          </div>
+        </div>
+        <div class="h-72 w-full bg-slate-800/50 rounded-xl p-2 border border-slate-700/50 relative">
+          <canvas id="tempChart"></canvas>
+          <div id="chart-msg" class="hidden absolute inset-0 flex items-center justify-center bg-slate-900/50 rounded-xl">
+            <span class="text-slate-400 text-sm animate-pulse">Loading...</span>
+          </div>
+        </div>
+        <div class="flex justify-between mt-3 text-[10px] text-slate-500 font-mono">
+          <span id="chart-points">— points</span>
+          <span id="chart-period">—</span>
+        </div>
+      </div>
+
+      <!-- Alerts section -->
+      <div class="glass rounded-3xl p-6">
+        <h2 class="text-lg font-bold text-white mb-4">Recent Alerts</h2>
+        <div id="alerts-list" class="space-y-2">
+          <p class="text-slate-500 text-sm">No alerts.</p>
+        </div>
+      </div>
+
+      <!-- Auto-refresh info -->
+      <div class="text-center text-[10px] text-slate-600 pb-4">
+        Auto-refreshes every 30s &middot; <span id="refresh-time">—</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const API_BASE = window.location.origin;
+  const params = new URLSearchParams(window.location.search);
+  const DEVICE_ID = params.get('id');
+
+  const THRESHOLDS = {
+    default: { min: 2, max: 8 },
+  };
+
+  let chartInstance = null;
+  let currentRange = '24h';
+  let deviceData = null;
+  let wsReconnectDelay = 1000;
+
+  function $(id) { return document.getElementById(id); }
+
+  function show(id) { $(id).classList.remove('hidden'); }
+  function hide(id) { $(id).classList.add('hidden'); }
+
+  function statusClass(status) {
+    if (status === 'online')  return 'status-ok';
+    if (status === 'stale')   return 'status-warn';
+    if (status === 'offline') return 'status-offline';
+    return 'status-crit';
+  }
+
+  function relativeTime(isoStr) {
+    if (!isoStr) return '—';
+    const diff = Date.now() - Date.parse(isoStr);
+    if (diff < 60000)     return Math.round(diff / 1000) + 's ago';
+    if (diff < 3600000)   return Math.round(diff / 60000) + 'm ago';
+    if (diff < 86400000)  return Math.round(diff / 3600000) + 'h ago';
+    return Math.round(diff / 86400000) + 'd ago';
+  }
+
+  function getThreshold(zone) {
+    const z = (zone || '').trim().toUpperCase();
+    return THRESHOLDS[z] || THRESHOLDS.default;
+  }
+
+  function applyDevice(d) {
+    deviceData = d;
+    // Use server-provided thresholds if available
+    if (d.thresholds) {
+      const z = (d.zone || '').trim().toUpperCase() || 'default';
+      THRESHOLDS[z] = { min: d.thresholds.min, max: d.thresholds.max };
+    }
+    const th = getThreshold(d.zone);
+
+    $('dev-name').textContent = d.name || d.id;
+    $('dev-id').textContent = d.id;
+    $('dev-ip').textContent = d.ip || '—';
+    $('dev-zone').textContent = d.zone || 'UNASSIGNED';
+    document.title = (d.name || d.id) + ' — Sisaket Hospital IoT';
+
+    // Status badge
+    const badge = $('dev-status');
+    badge.textContent = d.status || 'unknown';
+    badge.className = 'px-3 py-1 text-[10px] font-bold uppercase rounded-full text-white tracking-wider ' + statusClass(d.status);
+
+    // Stats
+    $('stat-temp').textContent = (typeof d.last_temp_c === 'number') ? d.last_temp_c.toFixed(1) + '°C' : '—°C';
+    $('stat-temp').className = 'text-3xl font-bold tabular-nums ' + tempColor(d.last_temp_c, th);
+    $('stat-range').textContent = th.min + '–' + th.max + '°C';
+    $('stat-rssi').textContent = d.rssi ? d.rssi + ' dBm' : '—';
+    $('stat-fw').textContent = d.fw_version || '—';
+    $('stat-seen').textContent = relativeTime(d.last_seen_at);
+    $('refresh-time').textContent = 'Last refresh: ' + new Date().toLocaleTimeString();
+  }
+
+  function tempColor(temp, th) {
+    if (typeof temp !== 'number') return 'text-slate-400';
+    if (temp < th.min || temp > th.max) return 'text-red-400';
+    if (temp < th.min + 0.5 || temp > th.max - 0.5) return 'text-yellow-400';
+    return 'text-cyan-400';
+  }
+
+  function openDeviceIP() {
+    const ip = deviceData && deviceData.ip;
+    if (ip && ip !== '0.0.0.0') {
+      window.open('http://' + ip, '_blank', 'noopener,noreferrer');
+    } else {
+      alert('Device IP not available.');
+    }
+  }
+
+  function safeFetchTimeout(ms) {
+    if (typeof AbortSignal.timeout === 'function') return { signal: AbortSignal.timeout(ms) };
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), ms);
+    return { signal: ctrl.signal };
+  }
+
+  // ---- Data Fetching ----
+  async function loadDevice() {
+    try {
+      const res = await fetch(API_BASE + '/api/devices/' + encodeURIComponent(DEVICE_ID), safeFetchTimeout(8000));
+      if (!res.ok) throw new Error('Not found');
+      const json = await res.json();
+      hide('loading');
+      show('device-view');
+      applyDevice(json.device);
+    } catch (e) {
+      hide('loading');
+      $('error-msg').textContent = 'Device "' + DEVICE_ID + '" could not be loaded.';
+      show('error-panel');
+    }
+  }
+
+  async function loadAlerts() {
+    try {
+      const res = await fetch(API_BASE + '/api/alerts?status=all', safeFetchTimeout(8000));
+      const json = await res.json();
+      const mine = (json.alerts || []).filter(a => a.device_id === DEVICE_ID).slice(0, 10);
+      renderAlerts(mine);
+    } catch (_) {}
+  }
+
+  function renderAlerts(alerts) {
+    const el = $('alerts-list');
+    if (!alerts.length) {
+      el.innerHTML = '<p class="text-slate-500 text-sm italic">No alerts for this device.</p>';
+      return;
+    }
+    el.innerHTML = alerts.map(a => {
+      const severity = a.severity === 'critical' ? 'bg-red-500/20 border-red-500/30 text-red-400'
+                     : a.severity === 'warning'  ? 'bg-yellow-500/20 border-yellow-500/30 text-yellow-400'
+                     : 'bg-slate-700/50 border-slate-600 text-slate-400';
+      const acked = a.acked_at ? '<span class="text-green-500 text-[10px] ml-2">✓ Acked</span>' : '';
+      return '<div class="border rounded-xl px-4 py-3 ' + severity + '">'
+        + '<div class="flex justify-between items-start">'
+        + '<div><span class="font-bold text-sm">' + escHtml(a.alert_type || 'alert') + '</span>' + acked + '</div>'
+        + '<span class="text-[10px] font-mono opacity-70">' + relativeTime(a.started_at) + '</span>'
+        + '</div>'
+        + (a.message ? '<p class="text-xs opacity-80 mt-1">' + escHtml(a.message) + '</p>' : '')
+        + '</div>';
+    }).join('');
+  }
+
+  function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ---- Chart ----
+  async function loadTelemetry(range) {
+    currentRange = range;
+    updateRangeBar(range);
+    const msg = $('chart-msg');
+    msg.classList.remove('hidden');
+
+    try {
+      const res = await fetch(API_BASE + '/api/devices/' + encodeURIComponent(DEVICE_ID) + '/telemetry?range=' + range, safeFetchTimeout(15000));
+      const json = await res.json();
+      msg.classList.add('hidden');
+      renderChart(json.points || []);
+      $('chart-points').textContent = (json.points || []).length + ' points';
+      $('chart-period').textContent = 'Range: ' + range.toUpperCase();
+    } catch (_) {
+      msg.textContent = 'Failed to load';
+      setTimeout(() => msg.classList.add('hidden'), 2000);
+    }
+  }
+
+  function updateRangeBar(active) {
+    document.querySelectorAll('.range-btn').forEach(btn => {
+      const isActive = btn.textContent.trim().toLowerCase() === active.toLowerCase();
+      btn.className = 'range-btn px-3 py-1.5 rounded-lg text-xs font-bold transition-all '
+        + (isActive ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30' : 'bg-slate-700/50 text-slate-400 border border-transparent hover:border-slate-500');
+    });
+  }
+
+  function renderChart(points) {
+    const ctx = $('tempChart').getContext('2d');
+    const th = getThreshold(deviceData ? deviceData.zone : '');
+
+    if (chartInstance) chartInstance.destroy();
+
+    const labels = points.map(p => {
+      const d = new Date(p.ts_server);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+    const data = points.map(p => p.temp_c);
+    const minLine = labels.map(() => th.min);
+    const maxLine = labels.map(() => th.max);
+
+    let yMin = data.length ? Math.min(...data) : th.min;
+    let yMax = data.length ? Math.max(...data) : th.max;
+    yMin = Math.min(yMin, th.min) - 3;
+    yMax = Math.max(yMax, th.max) + 3;
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Temperature °C', data, borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.08)', borderWidth: 2, pointRadius: data.length > 50 ? 0 : 3, pointBackgroundColor: '#06b6d4', fill: true, tension: 0.3 },
+          { label: 'Min ' + th.min + '°C', data: minLine, borderColor: '#ef444480', borderWidth: 1, borderDash: [5,5], pointRadius: 0, fill: false },
+          { label: 'Max ' + th.max + '°C', data: maxLine, borderColor: '#ef444480', borderWidth: 1, borderDash: [5,5], pointRadius: 0, fill: false },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { mode: 'index', intersect: false, backgroundColor: 'rgba(15,23,42,0.9)', titleColor: '#94a3b8', bodyColor: '#fff', borderColor: '#334155', borderWidth: 1, filter: i => i.datasetIndex === 0 }
+        },
+        scales: {
+          y: { grid: { color: '#334155', drawBorder: false }, ticks: { color: '#94a3b8' }, min: yMin, max: yMax },
+          x: { grid: { display: false }, ticks: { color: '#94a3b8', maxTicksLimit: 10 } }
+        }
+      }
+    });
+  }
+
+  // ---- WebSocket live updates ----
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(proto + '//' + location.host + '/ws');
+    socket.addEventListener('open', () => { wsReconnectDelay = 1000; });
+    socket.addEventListener('message', ev => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if ((msg.type === 'telemetry' || msg.type === 'status') && msg.device && msg.device.id === DEVICE_ID) {
+          applyDevice(msg.device);
+        }
+        if (msg.type === 'device_deleted' && msg.device_id === DEVICE_ID) {
+          $('error-msg').textContent = 'This device has been deleted.';
+          hide('device-view'); show('error-panel');
+        }
+      } catch (_) {}
+    });
+    socket.addEventListener('close', () => {
+      setTimeout(connectWS, wsReconnectDelay);
+      wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
+    });
+  }
+
+  // ---- Init ----
+  (async function init() {
+    if (!DEVICE_ID) {
+      hide('loading');
+      $('error-msg').textContent = 'No device ID specified. Use ?id=esp-XXXXXX in the URL.';
+      show('error-panel');
+      return;
+    }
+    await loadDevice();
+    if (deviceData) {
+      loadTelemetry('24h');
+      loadAlerts();
+      connectWS();
+      setInterval(() => {
+        loadDevice();
+        loadAlerts();
+      }, 30000);
+    }
+  })();
+</script>
+</body>
+</html>

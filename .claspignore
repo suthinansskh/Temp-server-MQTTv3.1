@@ -1,0 +1,12 @@
+src/**
+data/**
+.pio/**
+.vscode/**
+.claude/**
+compile_commands.json
+platformio.ini
+scan_esp.py
+sample_device_view.html
+*.bin
+*.elf
+*.map

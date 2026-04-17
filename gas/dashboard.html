@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sisaket Hospital - Cold Chain Monitoring</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+  <!-- Chart.js for Historical Data (UX/Feature) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Outfit', sans-serif; background: #0f172a; color: #f8fafc; overflow-x: hidden; }
+    .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .status-ok { background: #22c55e; box-shadow: 0 0 15px #22c55e66; }
+    .status-warn { background: #eab308; box-shadow: 0 0 15px #eab30866; }
+    .status-crit { background: #ef4444; box-shadow: 0 0 15px #ef444466; }
+    .status-stale { background: #f97316; box-shadow: 0 0 15px #f9731666; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .animate-pulse-slow { animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+  </style>
+</head>
+<body class="p-3 md:p-8">
+
+  <!-- Startup Overlay (Architecture: Fix Autoplay Policy) -->
+  <div id="startup-overlay" class="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center backdrop-blur-md">
+    <div class="glass p-10 rounded-3xl text-center max-w-md border-t-4 border-cyan-500 shadow-2xl">
+      <div class="text-6xl mb-4">🏥</div>
+      <h2 class="text-3xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">System Ready</h2>
+      <p class="text-slate-400 text-sm mb-8 leading-relaxed">Drug & Vaccine Cold Chain Monitoring.<br>Click below to initialize data stream.</p>
+      <button onclick="startMonitoring()" class="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold py-4 px-8 rounded-full transition-all hover:scale-105 hover:shadow-[0_0_25px_rgba(6,182,212,0.5)]">
+        START MONITORING
+      </button>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">Sisaket Hospital</h1>
+        <p class="text-slate-400 text-sm tracking-widest uppercase mt-1">Drug & Vaccine Cold Chain Monitoring</p>
+      </div>
+
+      <div class="glass px-4 md:px-6 py-3 rounded-2xl flex items-center gap-4 md:gap-6 flex-wrap">
+        <div class="flex items-center gap-2">
+          <div class="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" id="mqtt-indicator"></div>
+          <span id="mqtt-status" class="text-xs font-semibold text-cyan-400 uppercase">Waiting...</span>
+        </div>
+        <div class="h-6 w-px bg-slate-700"></div>
+        <div class="text-right">
+          <div id="clock" class="text-lg font-semibold tabular-nums">-:-</div>
+          <div class="text-[10px] text-slate-500 uppercase tracking-tighter">System Server Time</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Statistics -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-8">
+      <div class="glass p-4 rounded-3xl flex justify-between items-center border-l-4 border-cyan-500">
+        <div><div class="text-[10px] text-slate-500 font-bold uppercase">Total Devices</div><div id="stat-total" class="text-2xl font-bold">0</div></div>
+        <div class="bg-cyan-500/10 p-2 rounded-xl text-cyan-400">📡</div>
+      </div>
+      <div class="glass p-4 rounded-3xl flex justify-between items-center border-l-4 border-green-500">
+        <div><div class="text-[10px] text-slate-500 font-bold uppercase">Online Now</div><div id="stat-online" class="text-2xl font-bold text-green-400 tabular-nums">0</div></div>
+        <div class="bg-green-500/10 p-2 rounded-xl text-green-400">✅</div>
+      </div>
+      <div class="glass p-4 rounded-3xl flex justify-between items-center border-l-4 border-yellow-500">
+        <div><div class="text-[10px] text-slate-500 font-bold uppercase">Caution</div><div id="stat-warn" class="text-2xl font-bold text-yellow-500 tabular-nums">0</div></div>
+        <div class="bg-yellow-500/10 p-2 rounded-xl text-yellow-500">⚠️</div>
+      </div>
+      <div class="glass p-4 rounded-3xl flex justify-between items-center border-l-4 border-red-500 transition-colors duration-500" id="stat-crit-box">
+        <div><div class="text-[10px] text-slate-500 font-bold uppercase">Critical Alert</div><div id="stat-crit" class="text-2xl font-bold text-red-500 tabular-nums">0</div></div>
+        <div class="bg-red-500/10 p-2 rounded-xl text-red-500">🚨</div>
+      </div>
+    </div>
+
+    <!-- Filter & Search Bar -->
+    <div class="flex flex-col lg:flex-row gap-4 mb-8 items-center">
+      <div id="filter-bar" class="flex flex-wrap gap-2 bg-slate-800/50 p-2 rounded-2xl border border-slate-700/50 flex-grow">
+        <!-- Filter buttons are built dynamically by JS based on incoming data -->
+      </div>
+      <div class="glass flex items-center px-4 py-1 rounded-2xl border border-slate-700 w-full lg:w-72">
+        <svg class="w-4 h-4 text-slate-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+        <input type="text" id="search-box" onkeyup="handleSearch()" placeholder="Search Fridge or ID..." class="bg-transparent border-none outline-none text-sm text-slate-200 py-2 w-full">
+      </div>
+    </div>
+
+
+
+    <!-- Main Grid: 1 col on tiny screens, scales up -->
+    <div id="device-grid" class="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
+      <!-- Generated by JavaScript -->
+    </div>
+  </div>
+
+  <!-- Chart Modal Overlay -->
+  <div id="chart-modal" class="hidden fixed inset-0 bg-slate-900/90 z-40 flex items-center justify-center backdrop-blur-sm p-4 opacity-0 transition-opacity duration-300">
+    <div class="glass w-full max-w-4xl p-4 md:p-6 rounded-3xl relative scale-95 transition-transform duration-300 transform" id="chart-modal-content">
+      <button onclick="closeModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+      </button>
+
+      <div class="flex items-center gap-3 mb-1">
+        <h3 id="modal-title" class="text-2xl font-bold text-cyan-400">Device Name</h3>
+        <span id="modal-status-badge" class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-slate-700 text-white">STATUS</span>
+      </div>
+      <p id="modal-subtitle" class="text-sm text-slate-400 mb-4 font-mono">Device ID</p>
+
+      <!-- Range Selector -->
+      <div class="flex gap-2 mb-4" id="chart-range-bar">
+        <button onclick="setChartRange('live')" class="chart-range-btn px-3 py-1 rounded-lg text-xs font-bold bg-cyan-600/20 text-cyan-400 border border-cyan-500/30">LIVE</button>
+        <button onclick="setChartRange('1h')" class="chart-range-btn px-3 py-1 rounded-lg text-xs font-bold bg-slate-700/50 text-slate-400 border border-transparent">1H</button>
+        <button onclick="setChartRange('24h')" class="chart-range-btn px-3 py-1 rounded-lg text-xs font-bold bg-slate-700/50 text-slate-400 border border-transparent">24H</button>
+        <button onclick="setChartRange('48h')" class="chart-range-btn px-3 py-1 rounded-lg text-xs font-bold bg-slate-700/50 text-slate-400 border border-transparent">48H</button>
+      </div>
+
+      <div class="h-64 w-full bg-slate-800/50 rounded-xl p-2 mb-4 border border-slate-700/50 relative">
+        <canvas id="historyChart"></canvas>
+        <div id="chart-loading" class="hidden absolute inset-0 flex items-center justify-center bg-slate-900/50 rounded-xl">
+          <span class="text-slate-400 text-sm animate-pulse">Loading history...</span>
+        </div>
+      </div>
+
+      <div class="flex justify-between items-center mt-4">
+        <button id="modal-link-btn" onclick="openDeviceWindow()" class="text-sm bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white py-2.5 px-6 rounded-xl transition-all flex items-center gap-2 border border-slate-600">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+          Open Device IP
+        </button>
+        <button onclick="closeModal()" class="text-sm text-slate-400 hover:text-white px-4 py-2 hover:bg-slate-800 rounded-xl transition-colors">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- 1. CONFIGURATION & SECURITY ---
+    const CONFIG = {
+      brokerUrl: 'wss://4bdec66bf5984176a4d9eba86f41c7e9.s1.eu.hivemq.cloud:8884/mqtt',
+      mqttUser: 'admin',
+      mqttPass: 'Admin10700',
+      topicRoot: 'factory/#',
+      maxHistoryPoints: 60,
+      staleTimeout: 120000,    // 2 min → STALE
+      offlineTimeout: 300000,  // 5 min → OFFLINE
+      localStorageKey: 'ssk_dashboard_v1'
+    };
+
+    // --- 2. DYNAMIC THRESHOLDS (Features & UX) ---
+    const THRESHOLDS = {
+      default: { min: 2.0, max: 8.0, warnMargin: 0.5 }
+    };
+
+    let activeFilter = 'ALL';
+    let isMonitoring = false;
+    let currentChartRange = 'live';
+
+    // --- DATA STORES ---
+    const knownDevices = new Set();
+    const knownZones = new Set();
+    const deviceStates = {};
+    const deviceIPs = {};
+    const deviceNames = {};
+    const deviceZones = {};
+    const deviceConfigMap = {};
+    const deviceHistory = {};
+    const deviceLastTemp = {};
+
+    // Chart Instance
+    let historyChartInstance = null;
+    let currentModalDeviceId = null;
+
+    // Title flash
+    const originalTitle = document.title;
+    let titleFlashInterval = null;
+
+    const grid = document.getElementById('device-grid');
+
+    // --- TAILWIND: custom breakpoint for xs ---
+    if (typeof tailwind !== 'undefined') {
+      tailwind.config = { theme: { screens: { 'xs': '420px', 'sm': '640px', 'md': '768px', 'lg': '1024px', 'xl': '1280px' } } };
+    }
+
+    // --- PERSISTENCE: localStorage ---
+    function saveToLocalStorage() {
+      try {
+        const data = {
+          deviceStates, deviceIPs, deviceNames, deviceZones,
+          deviceConfigMap, deviceHistory, deviceLastTemp,
+          knownDevices: Array.from(knownDevices),
+          knownZones: Array.from(knownZones),
+          savedAt: Date.now()
+        };
+        localStorage.setItem(CONFIG.localStorageKey, JSON.stringify(data));
+      } catch(e) { /* quota exceeded - ignore */ }
+    }
+
+    function loadFromLocalStorage() {
+      try {
+        const raw = localStorage.getItem(CONFIG.localStorageKey);
+        if (!raw) return false;
+        const data = JSON.parse(raw);
+        // Only restore if saved less than 1 hour ago
+        if (Date.now() - data.savedAt > 3600000) return false;
+
+        if (data.knownDevices) data.knownDevices.forEach(id => knownDevices.add(id));
+        if (data.knownZones) data.knownZones.forEach(z => knownZones.add(z));
+        Object.assign(deviceStates, data.deviceStates || {});
+        Object.assign(deviceIPs, data.deviceIPs || {});
+        Object.assign(deviceNames, data.deviceNames || {});
+        Object.assign(deviceZones, data.deviceZones || {});
+        Object.assign(deviceConfigMap, data.deviceConfigMap || {});
+        Object.assign(deviceHistory, data.deviceHistory || {});
+        Object.assign(deviceLastTemp, data.deviceLastTemp || {});
+        return knownDevices.size > 0;
+      } catch(e) { return false; }
+    }
+
+    // Save periodically
+    setInterval(saveToLocalStorage, 15000);
+
+    // --- NOTIFICATIONS ---
+    function requestNotificationPermission() {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+
+    function sendNotification(title, body) {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try { new Notification(title, { body, icon: '🚨', tag: 'cold-chain-alert' }); } catch(e) {}
+      }
+    }
+
+    function startTitleFlash(msg) {
+      if (titleFlashInterval) return;
+      let show = true;
+      titleFlashInterval = setInterval(() => {
+        document.title = show ? msg : originalTitle;
+        show = !show;
+      }, 1000);
+    }
+
+    function stopTitleFlash() {
+      if (titleFlashInterval) {
+        clearInterval(titleFlashInterval);
+        titleFlashInterval = null;
+        document.title = originalTitle;
+      }
+    }
+
+    // --- ARCHITECTURE: INITIALIZATION ---
+    function startMonitoring() {
+      document.getElementById('startup-overlay').style.display = 'none';
+      isMonitoring = true;
+      requestNotificationPermission();
+
+      // Restore previous session data
+      const restored = loadFromLocalStorage();
+      if (restored) {
+        knownDevices.forEach(id => {
+          createDeviceCard(id, true); // skip re-adding to set
+          const name = deviceNames[id];
+          const zone = deviceZones[id];
+          const temp = deviceLastTemp[id];
+          if (temp !== undefined) {
+            updateCardVisuals(id, temp, deviceIPs[id], name, zone);
+          }
+        });
+      }
+
+      renderFilterBar();
+
+      initConnection();
+    }
+
+    // --- ARCHITECTURE: SAFE DOM CREATION ---
+    function createDeviceCard(id, skipSetAdd) {
+      if (!skipSetAdd) {
+        if (knownDevices.has(id)) return;
+        knownDevices.add(id);
+      }
+      if (!deviceHistory[id]) deviceHistory[id] = [];
+
+      // Don't create duplicate DOM
+      if (document.getElementById(`card-${id}`)) return;
+
+      const card = document.createElement('div');
+      card.id = `card-${id}`;
+      card.dataset.deviceId = id;
+      card.onclick = () => openDeviceModal(id);
+      card.title = 'Click to view History & Details';
+      card.className = 'glass p-4 rounded-3xl transition-all duration-300 hover:scale-[1.03] group border-transparent hover:border-cyan-500/50 cursor-pointer relative overflow-hidden';
+
+      card.innerHTML = `
+        <div class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-cyan-500/20 p-1 rounded-full">
+           <svg class="w-2.5 h-2.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+        </div>
+        <div class="flex justify-between items-start mb-2">
+          <div class="flex flex-col truncate pr-2">
+            <span class="text-[14px] font-bold text-slate-200 uppercase leading-tight el-name truncate w-24 sm:w-32">--</span>
+            <span class="text-[9px] text-slate-500 tracking-wider el-id truncate">--</span>
+          </div>
+          <div class="el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full bg-slate-600 border border-slate-900 mt-1"></div>
+        </div>
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="el-zone bg-slate-700/50 text-slate-400 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest max-w-full truncate">--</span>
+        </div>
+        <div class="text-3xl font-light mb-1 mt-3 flex items-baseline leading-none">
+            <span class="el-val text-slate-400 tabular-nums">--</span>
+            <span class="text-sm ml-1 text-slate-600">°C</span>
+        </div>
+        <div class="w-full bg-slate-800 h-1.5 rounded-full mt-4 overflow-hidden relative">
+            <div class="absolute inset-y-0 bg-white/10 z-0 el-safezone"></div>
+            <div class="el-progress relative z-10 h-full bg-cyan-500 transition-all duration-1000 shadow-[0_0_8px_rgba(6,182,212,0.5)]" style="width: 0%"></div>
+        </div>
+        <div class="flex justify-between items-end mt-3 border-t border-slate-700/50 pt-2">
+          <div class="text-[8px] text-slate-500/70 el-time leading-tight font-mono">Connecting...</div>
+          <div class="text-[8px] font-mono text-cyan-600/40 el-ip">0.0.0.0</div>
+        </div>`;
+
+      card.querySelector('.el-id').textContent = id;
+      grid.appendChild(card);
+      sortGrid();
+    }
+
+    // --- SORT & FILTER ---
+    function sortGrid() {
+      const cards = Array.from(grid.children);
+      cards.sort((a, b) => {
+        const nameA = a.querySelector('.el-name').textContent.toUpperCase();
+        const nameB = b.querySelector('.el-name').textContent.toUpperCase();
+        return nameA.localeCompare(nameB);
+      });
+      cards.forEach(card => grid.appendChild(card));
+    }
+
+    function renderFilterBar() {
+      const bar = document.getElementById('filter-bar');
+      bar.innerHTML = '';
+
+      const zones = ['ALL', ...Array.from(knownZones).sort()];
+
+      zones.forEach(z => {
+        const btn = document.createElement('button');
+        btn.onclick = () => filterZone(z);
+        btn.textContent = z;
+        btn.className = `btn-filter px-4 py-1.5 rounded-xl text-xs font-bold border transition-colors ${
+          activeFilter === z
+            ? 'bg-cyan-600/20 text-cyan-400 border-cyan-500/30'
+            : 'bg-slate-700/50 text-slate-400 border-transparent hover:bg-slate-700'
+        }`;
+        bar.appendChild(btn);
+      });
+    }
+
+    function filterZone(zone) {
+      activeFilter = zone.toUpperCase();
+      renderFilterBar();
+
+      knownDevices.forEach(id => {
+        const card = document.getElementById(`card-${id}`);
+        if (!card) return;
+        const cardZone = card.querySelector('.el-zone').textContent;
+        if (activeFilter === 'ALL' || cardZone === activeFilter) {
+          card.classList.remove('hidden');
+        } else {
+          card.classList.add('hidden');
+        }
+      });
+    }
+
+    function handleSearch() {
+      const query = document.getElementById('search-box').value.toUpperCase();
+      knownDevices.forEach(id => {
+        const card = document.getElementById(`card-${id}`);
+        if (!card) return;
+        const name = card.querySelector('.el-name').textContent.toUpperCase();
+        const actualId = id.toUpperCase();
+        const isMatch = name.includes(query) || actualId.includes(query);
+        const cardZone = card.querySelector('.el-zone').textContent;
+        const isZoneMatch = activeFilter === 'ALL' || cardZone === activeFilter;
+
+        if (isMatch && isZoneMatch) {
+          card.classList.remove('hidden');
+        } else {
+          card.classList.add('hidden');
+        }
+      });
+    }
+
+    // --- MODAL & CHART (Feature & UX) ---
+    function openDeviceModal(id) {
+      currentModalDeviceId = id;
+      currentChartRange = 'live';
+      const modal = document.getElementById('chart-modal');
+      const inner = document.getElementById('chart-modal-content');
+      const card = document.getElementById(`card-${id}`);
+
+      if(!card) return;
+
+      document.getElementById('modal-title').textContent = card.querySelector('.el-name').textContent;
+      document.getElementById('modal-subtitle').textContent = `Device ID: ${id} | IP: ${deviceIPs[id] || 'Unknown'}`;
+
+      // Mirror status color
+      const indicatorColor = card.querySelector('.el-indicator').className;
+      const badge = document.getElementById('modal-status-badge');
+      badge.className = `px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border ${
+        indicatorColor.includes('status-crit') ? 'bg-red-500/20 text-red-500 border-red-500' :
+        indicatorColor.includes('status-warn') ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500' :
+        indicatorColor.includes('status-stale') ? 'bg-orange-500/20 text-orange-500 border-orange-500' :
+        'bg-green-500/20 text-green-500 border-green-500'
+      }`;
+      badge.textContent = indicatorColor.includes('status-crit') ? 'CRITICAL' :
+                          indicatorColor.includes('status-warn') ? 'WARNING' :
+                          indicatorColor.includes('status-stale') ? 'STALE' : 'ONLINE';
+
+      // Update range bar active state
+      updateRangeBar('live');
+
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        inner.classList.remove('scale-95');
+      }, 10);
+
+      renderChart(id);
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('chart-modal');
+      const inner = document.getElementById('chart-modal-content');
+
+      modal.classList.add('opacity-0');
+      inner.classList.add('scale-95');
+      currentModalDeviceId = null;
+
+      setTimeout(() => {
+        modal.classList.add('hidden');
+      }, 300);
+    }
+
+    function openDeviceWindow() {
+      const ip = deviceIPs[currentModalDeviceId];
+      if (ip && ip !== '0.0.0.0') {
+        const protocol = window.location.protocol === 'https:' ? 'https://' : 'http://';
+        window.open(protocol + ip, '_blank');
+      } else {
+        alert('Device IP not available.');
+      }
+    }
+
+    // --- CHART RANGE SELECTOR ---
+    function updateRangeBar(active) {
+      document.querySelectorAll('.chart-range-btn').forEach(btn => {
+        const isActive = btn.textContent.trim().toLowerCase() === active;
+        btn.className = `chart-range-btn px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${
+          isActive ? 'bg-cyan-600/20 text-cyan-400 border-cyan-500/30' : 'bg-slate-700/50 text-slate-400 border-transparent hover:bg-slate-700'
+        }`;
+      });
+    }
+
+    function setChartRange(range) {
+      if (!currentModalDeviceId) return;
+      currentChartRange = range;
+      updateRangeBar(range);
+
+      if (range === 'live') {
+        renderChart(currentModalDeviceId);
+        return;
+      }
+
+      // Fetch from ESP device
+      const ip = deviceIPs[currentModalDeviceId];
+      if (!ip || ip === '0.0.0.0') {
+        renderChart(currentModalDeviceId); // fallback to live
+        return;
+      }
+
+      const rangeMap = { '1h': '5m', '24h': '24h', '48h': '72h' };
+      const apiRange = rangeMap[range] || '24h';
+      const loadingEl = document.getElementById('chart-loading');
+      loadingEl.classList.remove('hidden');
+
+      const protocol = window.location.protocol === 'https:' ? 'https://' : 'http://';
+      fetch(`${protocol}${ip}/api/history?range=${apiRange}`, {
+        headers: { 'Authorization': 'Basic ' + btoa('admin:admin') },
+        signal: AbortSignal.timeout(8000)
+      })
+      .then(r => r.json())
+      .then(data => {
+        loadingEl.classList.add('hidden');
+        if (data && data.d) {
+          renderChartWithData(currentModalDeviceId, data.d, range);
+        }
+      })
+      .catch(() => {
+        loadingEl.classList.add('hidden');
+        renderChart(currentModalDeviceId); // fallback to live data
+      });
+    }
+
+    // Render chart with live data from deviceHistory
+    function renderChart(id) {
+      const ctx = document.getElementById('historyChart').getContext('2d');
+      const history = deviceHistory[id] || [];
+      const configKey = deviceConfigMap[id] || 'default';
+      const threshold = THRESHOLDS[configKey] || THRESHOLDS.default;
+
+      if (historyChartInstance) {
+        historyChartInstance.destroy();
+      }
+
+      const labels = history.map(h => h.time);
+      const dataPoints = history.map(h => h.val);
+
+      historyChartInstance = buildChart(ctx, labels, dataPoints, threshold);
+    }
+
+    // Render chart with ESP history data
+    function renderChartWithData(id, rawData, range) {
+      const ctx = document.getElementById('historyChart').getContext('2d');
+      const configKey = deviceConfigMap[id] || 'default';
+      const threshold = THRESHOLDS[configKey] || THRESHOLDS.default;
+
+      if (historyChartInstance) {
+        historyChartInstance.destroy();
+      }
+
+      const labels = rawData.map((_, i) => {
+        const totalMin = rawData.length * 10; // approx 10min intervals
+        const minAgo = totalMin - (i * 10);
+        return minAgo > 60 ? `-${Math.round(minAgo/60)}h` : `-${minAgo}m`;
+      });
+
+      historyChartInstance = buildChart(ctx, labels, rawData, threshold);
+    }
+
+    // Shared chart builder with threshold lines
+    function buildChart(ctx, labels, dataPoints, threshold) {
+      // Create threshold line datasets
+      const minLine = new Array(labels.length).fill(threshold.min);
+      const maxLine = new Array(labels.length).fill(threshold.max);
+
+      return new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Temperature °C',
+              data: dataPoints,
+              borderColor: '#06b6d4',
+              backgroundColor: 'rgba(6, 182, 212, 0.1)',
+              borderWidth: 2,
+              pointRadius: dataPoints.length > 20 ? 0 : 3,
+              pointBackgroundColor: '#06b6d4',
+              fill: true,
+              tension: 0.4
+            },
+            {
+              label: 'Min Safe',
+              data: minLine,
+              borderColor: '#ef444480',
+              borderWidth: 1,
+              borderDash: [5, 5],
+              pointRadius: 0,
+              fill: false
+            },
+            {
+              label: 'Max Safe',
+              data: maxLine,
+              borderColor: '#ef444480',
+              borderWidth: 1,
+              borderDash: [5, 5],
+              pointRadius: 0,
+              fill: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              backgroundColor: 'rgba(15, 23, 42, 0.9)',
+              titleColor: '#94a3b8',
+              bodyColor: '#fff',
+              borderColor: '#334155',
+              borderWidth: 1,
+              filter: (item) => item.datasetIndex === 0 // only show temp tooltip
+            }
+          },
+          scales: {
+            y: {
+              grid: { color: '#334155', drawBorder: false },
+              ticks: { color: '#94a3b8' },
+              min: threshold.min - 3,
+              max: threshold.max + 3
+            },
+            x: {
+              grid: { display: false },
+              ticks: { color: '#94a3b8', maxTicksLimit: 8 }
+            }
+          }
+        }
+      });
+    }
+
+    // Update history array
+    function appendHistory(id, temp) {
+      const history = deviceHistory[id];
+      if(!history) return;
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      if(history.length >= CONFIG.maxHistoryPoints) {
+        history.shift();
+      }
+      history.push({ time: now, val: temp });
+
+      // Update chart live if modal is open showing this device in live mode
+      if(currentModalDeviceId === id && historyChartInstance && currentChartRange === 'live') {
+        historyChartInstance.data.labels = history.map(h => h.time);
+        historyChartInstance.data.datasets[0].data = history.map(h => h.val);
+        // Update threshold lines length
+        const configKey = deviceConfigMap[id] || 'default';
+        const threshold = THRESHOLDS[configKey] || THRESHOLDS.default;
+        historyChartInstance.data.datasets[1].data = new Array(history.length).fill(threshold.min);
+        historyChartInstance.data.datasets[2].data = new Array(history.length).fill(threshold.max);
+        historyChartInstance.update('none');
+      }
+    }
+
+    // --- MAIN DATA HANDLER ---
+    const isGAS = window.location.hostname.includes('google');
+
+    function initConnection() {
+      if (!isGAS) {
+        const mqttClient = mqtt.connect(CONFIG.brokerUrl, {
+          username: CONFIG.mqttUser,
+          password: CONFIG.mqttPass,
+          reconnectPeriod: 2000,
+          connectTimeout: 10000,
+          clean: true
+        });
+
+        const statusEl = document.getElementById('mqtt-status');
+        const indicatorEl = document.getElementById('mqtt-indicator');
+
+        mqttClient.on('offline', () => {
+          statusEl.textContent = 'Disconnected';
+          statusEl.className = 'text-xs font-semibold text-red-500 uppercase';
+          indicatorEl.className = 'w-2 h-2 rounded-full bg-red-500';
+        });
+
+        mqttClient.on('reconnect', () => {
+          statusEl.textContent = 'Reconnecting...';
+          statusEl.className = 'text-xs font-semibold text-yellow-500 uppercase';
+          indicatorEl.className = 'w-2 h-2 rounded-full bg-yellow-500 animate-pulse';
+        });
+
+        mqttClient.on('connect', () => {
+          statusEl.textContent = 'Connected Live';
+          statusEl.className = 'text-xs font-semibold text-cyan-400 uppercase';
+          indicatorEl.className = 'w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]';
+          mqttClient.subscribe(CONFIG.topicRoot);
+        });
+
+        mqttClient.on('message', (topic, message) => {
+          try {
+            const parts = topic.split('/');
+            // factory / zone / temp / device_name
+            if (parts.length < 4 || parts[0] !== 'factory') return;
+
+            const zone = parts[1];
+            const type = parts[2];
+            const deviceName = parts[3];
+
+            if (type === 'temp') {
+              const raw = message.toString().trim();
+              let temp, name = deviceName, ip = '';
+
+              // Support both plain text "5.50" and JSON {"t":5.5,"n":"...","z":"..."}
+              if (raw.startsWith('{')) {
+                const data = JSON.parse(raw);
+                temp = data.t !== undefined ? data.t : data.temp;
+                name = data.n || data.name || deviceName;
+                ip = data.ip || '';
+              } else {
+                temp = parseFloat(raw);
+              }
+
+              if (temp === undefined || isNaN(temp)) return;
+              const id = zone + '/' + deviceName;
+              updateUI(id, temp, ip, name, zone);
+            }
+          } catch (e) {
+            console.warn('Invalid MQTT payload parsing');
+          }
+        });
+      } else {
+        // GAS Polling Fallback
+        document.getElementById('mqtt-status').innerText = 'Using Sheets Mode';
+        document.getElementById('mqtt-indicator').className = 'w-2 h-2 rounded-full bg-blue-500';
+
+        function pollSheets() {
+          google.script.run
+            .withSuccessHandler(function(result) {
+              if (!result || !result.devices) return;
+              const serverNow = result.serverTime || Date.now();
+              result.devices.forEach(function(d) {
+                updateUI(d.id, d.t, '', d.n, d.z);
+                // Use actual data timestamp for offline detection
+                if (d.ts) {
+                  const age = serverNow - d.ts;
+                  deviceStates[d.id] = Date.now() - age;
+                }
+              });
+              updateStats();
+            })
+            .fetchLatestReadings();
+        }
+        pollSheets();
+        setInterval(pollSheets, 30000);
+      }
+    }
+
+    function updateUI(id, temp, ip, name, zone) {
+      createDeviceCard(id);
+
+      const now = Date.now();
+
+      // Throttle history saves (every 30s per device)
+      const lastSave = deviceStates[id] || 0;
+      if (now - lastSave > 30000) {
+         appendHistory(id, temp);
+         deviceStates[id] = now;
+      } else {
+        deviceStates[id] = now;
+      }
+
+      // Persist metadata
+      deviceIPs[id] = ip || '';
+      if (name) deviceNames[id] = name;
+      if (zone) deviceZones[id] = zone;
+      deviceLastTemp[id] = temp;
+
+      updateCardVisuals(id, temp, ip, name, zone);
+    }
+
+    function updateCardVisuals(id, temp, ip, name, zone) {
+      const card = document.getElementById(`card-${id}`);
+      if (!card) return;
+
+      const zoneClean = zone ? zone.trim().toUpperCase() : '';
+      const configKey = THRESHOLDS[zoneClean] ? zoneClean : 'default';
+      deviceConfigMap[id] = configKey;
+      const threshold = THRESHOLDS[configKey];
+
+      const valEl = card.querySelector('.el-val');
+      const ipEl = card.querySelector('.el-ip');
+      const nameEl = card.querySelector('.el-name');
+      const zoneEl = card.querySelector('.el-zone');
+      const timeEl = card.querySelector('.el-time');
+      const indEl = card.querySelector('.el-indicator');
+      const progEl = card.querySelector('.el-progress');
+      const safeZoneEl = card.querySelector('.el-safezone');
+
+      valEl.textContent = temp.toFixed(1);
+      valEl.className = 'el-val text-white tabular-nums';
+      ipEl.textContent = ip || 'No IP';
+
+      if(name && nameEl.textContent !== name) {
+        nameEl.textContent = name;
+        sortGrid();
+      }
+      if(zoneClean && zoneEl.textContent !== zoneClean) {
+        zoneEl.textContent = zoneClean;
+      }
+
+      if(zoneClean && !knownZones.has(zoneClean)) {
+        knownZones.add(zoneClean);
+        renderFilterBar();
+      }
+
+      if (activeFilter !== 'ALL' && zoneClean !== activeFilter) {
+          card.classList.add('hidden');
+      } else {
+          card.classList.remove('hidden');
+      }
+
+      // Dynamic Cold Chain Scale
+      const scaleMin = threshold.min - 5;
+      const scaleMax = threshold.max + 5;
+      const safeZoneLeft = Math.max(0, ((threshold.min - scaleMin) / (scaleMax - scaleMin)) * 100);
+      const safeZoneWidth = Math.min(100, ((threshold.max - threshold.min) / (scaleMax - scaleMin)) * 100);
+
+      safeZoneEl.style.left = `${safeZoneLeft}%`;
+      safeZoneEl.style.width = `${safeZoneWidth}%`;
+
+      let percent = ((temp - scaleMin) / (scaleMax - scaleMin)) * 100;
+      progEl.style.width = Math.min(Math.max(percent, 0), 100) + '%';
+
+      // Status Color
+      let isSafe = (temp >= threshold.min && temp <= threshold.max);
+
+      let newClass = 'el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full mt-1 ';
+      if (isSafe) {
+        if ((temp < threshold.min + threshold.warnMargin) || (temp > threshold.max - threshold.warnMargin)) {
+          newClass += 'status-warn';
+          progEl.className = 'el-progress relative z-10 h-full bg-yellow-400 transition-all duration-1000 shadow-[0_0_8px_rgba(250,204,21,0.5)]';
+        } else {
+          newClass += 'status-ok';
+          progEl.className = 'el-progress relative z-10 h-full bg-green-500 transition-all duration-1000 shadow-[0_0_8px_rgba(34,197,94,0.5)]';
+        }
+      } else {
+        newClass += 'status-crit';
+        progEl.className = 'el-progress relative z-10 h-full bg-red-500 transition-all duration-1000 shadow-[0_0_12px_rgba(239,68,68,0.8)]';
+      }
+
+      indEl.className = newClass;
+      timeEl.textContent = new Date().toLocaleTimeString();
+    }
+
+    // --- AGGREGATION & STATS ---
+    function updateStats() {
+      let online = 0, warn = 0, crit = 0;
+      const now = Date.now();
+
+      knownDevices.forEach(id => {
+        const lastSeen = deviceStates[id] || 0;
+        const card = document.getElementById(`card-${id}`);
+        if (!card) return;
+        const ind = card.querySelector('.el-indicator');
+
+        if (now - lastSeen < CONFIG.offlineTimeout) {
+          online++;
+          if (ind.classList.contains('status-warn')) warn++;
+          if (ind.classList.contains('status-crit')) crit++;
+        }
+      });
+
+      document.getElementById('stat-total').textContent = knownDevices.size;
+      document.getElementById('stat-online').textContent = online;
+      document.getElementById('stat-warn').textContent = warn;
+      document.getElementById('stat-crit').textContent = crit;
+
+      const critBox = document.getElementById('stat-crit-box');
+      if(crit > 0) {
+        critBox.classList.add('bg-red-500/10', 'border-red-500');
+        critBox.classList.remove('glass');
+      } else {
+        critBox.classList.remove('bg-red-500/10', 'border-red-500');
+        critBox.classList.add('glass');
+      }
+
+      // Notification logic
+      if (crit > 0) {
+        startTitleFlash(`🚨 ${crit} CRITICAL - Cold Chain Alert!`);
+        if (isMonitoring) {
+          sendNotification('Cold Chain CRITICAL', `${crit} device(s) out of safe temperature range!`);
+        }
+      } else {
+        stopTitleFlash();
+      }
+    }
+
+    // --- WATCHDOG: Track STALE & Offline Status ---
+    setInterval(() => {
+      if(!isMonitoring) return;
+      const now = Date.now();
+      knownDevices.forEach(id => {
+        const card = document.getElementById(`card-${id}`);
+        if (!card) return;
+        const lastSeen = deviceStates[id] || 0;
+        if (lastSeen === 0) return;
+
+        const elapsed = now - lastSeen;
+        const ind = card.querySelector('.el-indicator');
+
+        if (elapsed > CONFIG.offlineTimeout) {
+          // OFFLINE: no data for 5+ minutes
+          ind.className = 'el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full bg-slate-700 mt-1';
+          card.querySelector('.el-val').textContent = 'OFF';
+          card.querySelector('.el-val').className = 'el-val text-slate-600 tabular-nums';
+          card.querySelector('.el-time').textContent = 'OFFLINE (' + Math.round(elapsed / 60000) + 'm)';
+          card.querySelector('.el-progress').style.width = '0%';
+        } else if (elapsed > CONFIG.staleTimeout) {
+          // STALE: no data for 2-5 minutes
+          ind.className = 'el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full status-stale mt-1';
+          card.querySelector('.el-time').textContent = 'STALE (' + Math.round(elapsed / 1000) + 's)';
+        }
+      });
+      updateStats();
+    }, 5000);
+
+    // Server Clock
+    setInterval(() => {
+      document.getElementById('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second:'2-digit' });
+    }, 1000);
+  </script>
+</body>
+</html>

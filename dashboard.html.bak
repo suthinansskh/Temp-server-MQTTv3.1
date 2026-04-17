@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sisaket Hospital - Cold Chain Monitoring</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC" crossorigin="anonymous"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      overflow-x: hidden;
+    }
+
+    .glass {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .status-ok {
+      background: #22c55e;
+      box-shadow: 0 0 15px #22c55e66;
+    }
+
+    .status-warn {
+      background: #eab308;
+      box-shadow: 0 0 15px #eab30866;
+    }
+
+    .status-crit {
+      background: #ef4444;
+      box-shadow: 0 0 15px #ef444466;
+    }
+
+    .status-stale {
+      background: #f97316;
+      box-shadow: 0 0 15px #f9731666;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    .animate-pulse-slow {
+      animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .card-enter {
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes ringPulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+      }
+
+      70% {
+        box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+      }
+
+      100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+      }
+    }
+
+    .ring-alert {
+      animation: ringPulse 1.5s ease-out infinite;
+    }
+
+    .sort-btn.active {
+      color: #22d3ee;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+
+<body class="p-3 md:p-8">
+
+  <!-- Startup Overlay -->
+  <div id="startup-overlay"
+    class="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center backdrop-blur-md">
+    <div class="glass p-10 rounded-3xl text-center max-w-md border-t-4 border-cyan-500 shadow-2xl">
+      <div class="text-6xl mb-4">🏥</div>
+      <h2 class="text-3xl font-bold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+        System Ready</h2>
+      <p class="text-slate-400 text-sm mb-8 leading-relaxed">Drug & Vaccine Cold Chain Monitoring.<br>Click below to
+        initialize data stream and enable audio alerts.</p>
+      <button onclick="startMonitoring()"
+        class="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold py-4 px-8 rounded-full transition-all hover:scale-105 hover:shadow-[0_0_25px_rgba(6,182,212,0.5)]">
+        START MONITORING
+      </button>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+      <div>
+        <h1
+          class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+          Sisaket Hospital</h1>
+        <p class="text-slate-400 text-sm tracking-widest uppercase mt-1">Drug & Vaccine Cold Chain Monitoring</p>
+      </div>
+
+      <div class="glass px-4 md:px-6 py-3 rounded-2xl flex items-center gap-4 md:gap-6 flex-wrap">
+        <!-- Acknowledge Alarm Button -->
+        <button id="btn-ack" onclick="acknowledgeAlarm()"
+          class="hidden bg-red-500/20 text-red-500 px-4 py-2 md:py-1.5 rounded-xl text-xs font-bold border border-red-500/50 animate-pulse-slow hover:bg-red-500/40 transition-colors min-w-[140px]">
+          🔕 MUTE ALARM (15m)
+        </button>
+        <div class="h-6 w-px bg-slate-700 hidden md:block" id="ack-divider"></div>
+
+        <!-- Admin Mode Toggle -->
+        <button id="btn-admin" onclick="toggleAdminMode()"
+          class="bg-slate-800/50 text-slate-500 px-3 py-1.5 rounded-xl text-[10px] font-bold border border-slate-700 hover:bg-slate-700 hover:text-slate-300 transition-colors uppercase tracking-wider">
+          ⚙ Admin
+        </button>
+        <!-- Clear Offline Button (admin only) -->
+        <button id="btn-clear-offline" onclick="clearOfflineDevices()"
+          class="hidden bg-orange-500/10 text-orange-400 px-3 py-1.5 rounded-xl text-[10px] font-bold border border-orange-500/30 hover:bg-orange-500/30 transition-colors uppercase tracking-wider">
+          🗑 Clear Offline
+        </button>
+
+        <!-- Data Source Badge -->
+        <div class="flex items-center gap-2 bg-slate-800/50 px-3 py-1 rounded-lg">
+          <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Data</span>
+          <span id="data-source" class="text-[10px] font-bold text-cyan-400">Backend API</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <div class="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" id="mqtt-indicator"></div>
+          <span id="mqtt-status" class="text-xs font-semibold text-cyan-400 uppercase">Waiting...</span>
+        </div>
+        <div class="h-6 w-px bg-slate-700"></div>
+        <div class="text-right">
+          <div id="clock" class="text-lg font-semibold tabular-nums">-:-</div>
+          <div class="text-[10px] text-slate-500 uppercase tracking-tighter">Local Time</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard Statistics -->
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-8">
+      <div class="glass p-4 rounded-3xl flex justify-between items-center border-l-4 border-cyan-500">
+        <div>
+          <div class="text-[10px] text-slate-500 font-bold uppercase">Total Devices</div>
+          <div id="stat-total" class="text-2xl font-bold">0</div>
+        </div>
+        <div class="bg-cyan-500/10 p-2 rounded-xl text-cyan-400">📡</div>
+      </div>
+      <div class="glass p-4 rounded-3xl flex justify-between items-center border-l-4 border-green-500">
+        <div>
+          <div class="text-[10px] text-slate-500 font-bold uppercase">Online Now</div>
+          <div id="stat-online" class="text-2xl font-bold text-green-400 tabular-nums">0</div>
+        </div>
+        <div class="bg-green-500/10 p-2 rounded-xl text-green-400">✅</div>
+      </div>
+      <div class="glass p-4 rounded-3xl flex justify-between items-center border-l-4 border-yellow-500">
+        <div>
+          <div class="text-[10px] text-slate-500 font-bold uppercase">Caution</div>
+          <div id="stat-warn" class="text-2xl font-bold text-yellow-500 tabular-nums">0</div>
+        </div>
+        <div class="bg-yellow-500/10 p-2 rounded-xl text-yellow-500">⚠️</div>
+      </div>
+      <div
+        class="glass p-4 rounded-3xl flex justify-between items-center border-l-4 border-red-500 transition-colors duration-500"
+        id="stat-crit-box">
+        <div>
+          <div class="text-[10px] text-slate-500 font-bold uppercase">Critical Alert</div>
+          <div id="stat-crit" class="text-2xl font-bold text-red-500 tabular-nums">0</div>
+        </div>
+        <div class="bg-red-500/10 p-2 rounded-xl text-red-500">🚨</div>
+      </div>
+      <div class="glass p-4 rounded-3xl flex justify-between items-center border-l-4 border-orange-500">
+        <div>
+          <div class="text-[10px] text-slate-500 font-bold uppercase">Stale / Offline</div>
+          <div id="stat-offline" class="text-2xl font-bold text-orange-400 tabular-nums">0</div>
+        </div>
+        <div class="bg-orange-500/10 p-2 rounded-xl text-orange-400">📴</div>
+      </div>
+    </div>
+
+    <!-- Filter, Sort & Search Bar -->
+    <div class="flex flex-col lg:flex-row gap-4 mb-8 items-center">
+      <div id="filter-bar"
+        class="flex flex-wrap gap-2 bg-slate-800/50 p-2 rounded-2xl border border-slate-700/50 flex-grow">
+      </div>
+      <div class="flex items-center gap-2">
+        <!-- Sort Buttons -->
+        <div class="glass flex items-center px-2 py-1 rounded-2xl border border-slate-700 gap-1">
+          <span class="text-[9px] text-slate-500 font-bold uppercase px-1">Sort</span>
+          <button onclick="setSortMode('name')" id="sort-name"
+            class="sort-btn text-[10px] px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-400 font-bold active"
+            title="Sort by name">A-Z</button>
+          <button onclick="setSortMode('temp')" id="sort-temp"
+            class="sort-btn text-[10px] px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-400 font-bold"
+            title="Sort by temperature">🌡️</button>
+          <button onclick="setSortMode('status')" id="sort-status"
+            class="sort-btn text-[10px] px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-400 font-bold"
+            title="Sort by status (alerts first)">⚠️</button>
+        </div>
+        <!-- Search -->
+        <div class="glass flex items-center px-4 py-1 rounded-2xl border border-slate-700 w-full lg:w-64">
+          <svg class="w-4 h-4 text-slate-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+          </svg>
+          <input type="text" id="search-box" onkeyup="handleSearch()" placeholder="Search Fridge or ID..."
+            class="bg-transparent border-none outline-none text-sm text-slate-200 py-2 w-full">
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio Alarm (Web Audio API - no external file) -->
+    <script>
+      const AlarmTone = (() => {
+        let ctx, oscillator, gain, playing = false, pulseInterval;
+        function start() {
+          if (playing) return;
+          ctx = new (window.AudioContext || window.webkitAudioContext)();
+          oscillator = ctx.createOscillator();
+          gain = ctx.createGain();
+          oscillator.type = 'square';
+          oscillator.frequency.value = 880;
+          gain.gain.value = 0.3;
+          oscillator.connect(gain);
+          gain.connect(ctx.destination);
+          oscillator.start();
+          // Pulsing effect via interval (avoids scheduling hundreds of events)
+          let on = true;
+          pulseInterval = setInterval(() => {
+            on = !on;
+            try { gain.gain.setValueAtTime(on ? 0.3 : 0, ctx.currentTime); } catch (e) { clearInterval(pulseInterval); }
+          }, 250);
+          playing = true;
+        }
+        function stop() {
+          if (!playing) return;
+          if (pulseInterval) { clearInterval(pulseInterval); pulseInterval = null; }
+          try { oscillator.stop(); } catch (e) { }
+          try { ctx.close(); } catch (e) { }
+          playing = false;
+        }
+        return { play: start, pause: stop, stop, get paused() { return !playing; } };
+      })();
+    </script>
+
+    <!-- Main Grid -->
+    <div id="device-grid"
+      class="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
+    </div>
+
+    <!-- Footer -->
+    <div class="mt-12 mb-4 text-center">
+      <div class="text-[10px] text-slate-600 uppercase tracking-widest">
+        Sisaket Hospital IoT &middot; Backend API + SQLite Architecture &middot; <span id="footer-version">Dashboard
+          v3.0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart Modal Overlay -->
+  <div id="chart-modal"
+    class="hidden fixed inset-0 bg-slate-900/90 z-40 flex items-center justify-center backdrop-blur-sm p-4 opacity-0 transition-opacity duration-300">
+    <div
+      class="glass w-full max-w-4xl p-4 md:p-6 rounded-3xl relative scale-95 transition-transform duration-300 transform"
+      id="chart-modal-content">
+      <button onclick="closeModal()"
+        class="absolute top-4 right-4 text-slate-400 hover:text-white bg-slate-800 p-2 rounded-full z-10">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-3 mb-1">
+        <h3 id="modal-title" class="text-2xl font-bold text-cyan-400">Device Name</h3>
+        <span id="modal-status-badge"
+          class="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-slate-700 text-white">STATUS</span>
+      </div>
+      <p id="modal-subtitle" class="text-sm text-slate-400 mb-2 font-mono">Device ID</p>
+
+      <!-- Device Detail Stats -->
+      <div class="grid grid-cols-4 gap-2 mb-4">
+        <div class="bg-slate-800/50 rounded-xl p-3 text-center">
+          <div class="text-[9px] text-slate-500 font-bold uppercase">Current</div>
+          <div id="modal-temp" class="text-xl font-bold text-cyan-400 tabular-nums">--°C</div>
+        </div>
+        <div class="bg-slate-800/50 rounded-xl p-3 text-center">
+          <div class="text-[9px] text-slate-500 font-bold uppercase">Min</div>
+          <div id="modal-min" class="text-xl font-bold text-blue-400 tabular-nums">--°C</div>
+        </div>
+        <div class="bg-slate-800/50 rounded-xl p-3 text-center">
+          <div class="text-[9px] text-slate-500 font-bold uppercase">Max</div>
+          <div id="modal-max" class="text-xl font-bold text-red-400 tabular-nums">--°C</div>
+        </div>
+        <div class="bg-slate-800/50 rounded-xl p-3 text-center">
+          <div class="text-[9px] text-slate-500 font-bold uppercase">Zone</div>
+          <div id="modal-zone" class="text-sm font-bold text-slate-300 mt-1">--</div>
+          <div id="modal-range" class="text-[9px] text-slate-500 mt-0.5">--</div>
+        </div>
+      </div>
+
+      <!-- Range Selector -->
+      <div class="flex gap-2 mb-4" id="chart-range-bar">
+        <button onclick="setChartRange('1h')"
+          class="chart-range-btn px-3 py-1 rounded-lg text-xs font-bold bg-cyan-600/20 text-cyan-400 border border-cyan-500/30">1H</button>
+        <button onclick="setChartRange('24h')"
+          class="chart-range-btn px-3 py-1 rounded-lg text-xs font-bold bg-slate-700/50 text-slate-400 border border-transparent">24H</button>
+        <button onclick="setChartRange('48h')"
+          class="chart-range-btn px-3 py-1 rounded-lg text-xs font-bold bg-slate-700/50 text-slate-400 border border-transparent">48H</button>
+      </div>
+
+      <div class="h-64 w-full bg-slate-800/50 rounded-xl p-2 mb-4 border border-slate-700/50 relative">
+        <canvas id="historyChart"></canvas>
+        <div id="chart-loading"
+          class="hidden absolute inset-0 flex items-center justify-center bg-slate-900/50 rounded-xl">
+          <span class="text-slate-400 text-sm animate-pulse">Loading history...</span>
+        </div>
+      </div>
+
+      <div class="flex justify-between items-center mt-4">
+        <div class="flex gap-2">
+          <button id="modal-link-btn" onclick="openDeviceWindow()"
+            class="text-sm bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-600 hover:to-slate-700 text-white py-2.5 px-6 rounded-xl transition-all flex items-center gap-2 border border-slate-600">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+            </svg>
+            Full Device View
+          </button>
+          <button id="modal-delete-btn" onclick="deleteDeviceFromModal()"
+            class="hidden text-sm bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 py-2.5 px-5 rounded-xl transition-all flex items-center gap-2 border border-red-500/30">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+              </path>
+            </svg>
+            Delete Device
+          </button>
+        </div>
+        <button onclick="closeModal()"
+          class="text-sm text-slate-400 hover:text-white px-4 py-2 hover:bg-slate-800 rounded-xl transition-colors">
+          Close <span class="text-[10px] text-slate-600 ml-1">ESC</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- 1. CONFIGURATION ---
+    const CONFIG = {
+      apiBase: window.location.origin,
+      wsUrl: `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`,
+      devicePageProtocol: window.location.protocol === 'https:' ? 'https://' : 'http://',
+      staleTimeout: 120000,    // 2 min
+      offlineTimeout: 300000   // 5 min
+    };
+
+    // --- 2. DYNAMIC THRESHOLDS (Match Code.gs) ---
+    const THRESHOLDS = {
+      default: { min: 2.0, max: 8.0, warnMargin: 0.5, label: 'Refrigerator' }
+    };
+
+    let activeFilter = 'ALL';
+    let sortMode = 'name';
+    let isMonitoring = false;
+    let alarmMutedUntil = 0;
+    let currentChartRange = '1h';
+    let adminMode = false;
+    let wsReconnectDelay = 1000;
+
+    // --- DATA STORES ---
+    const knownDevices = new Set();
+    const knownZones = new Set();
+    const deviceStates = {};
+    const deviceIPs = {};
+    const deviceNames = {};
+    const deviceZones = {};
+    const deviceConfigMap = {};
+    const deviceLastTemp = {};
+
+    function normalizedDeviceName(id) {
+      return (deviceNames[id] || id || '').trim().toUpperCase();
+    }
+
+    function normalizedDeviceZone(id, card) {
+      const zone = deviceZones[id] || card?.querySelector('.el-zone')?.textContent || 'UNASSIGNED';
+      return zone.trim().toUpperCase();
+    }
+
+    function physicalDeviceKey(id, card) {
+      const ip = (deviceIPs[id] || '').trim();
+      if (!ip || ip === '0.0.0.0') return `id:${id}`;
+      return `phy:${ip}|${normalizedDeviceName(id)}|${normalizedDeviceZone(id, card)}`;
+    }
+
+    function isGhostDevice(id, card) {
+      const zone = normalizedDeviceZone(id, card);
+      const ip = (deviceIPs[id] || '').trim();
+      const lastSeen = deviceStates[id] || 0;
+      return zone === 'UNASSIGNED' && !ip && lastSeen > 0 && (Date.now() - lastSeen >= CONFIG.staleTimeout);
+    }
+
+    function getPhysicalDeviceIds() {
+      const seen = new Set();
+      const ids = [];
+
+      knownDevices.forEach(id => {
+        const card = document.getElementById(`card-${id}`);
+        if (!card || isGhostDevice(id, card)) return;
+        const key = physicalDeviceKey(id, card);
+        if (seen.has(key)) return;
+        seen.add(key);
+        ids.push(id);
+      });
+
+      return ids;
+    }
+
+    let historyChartInstance = null;
+    let currentModalDeviceId = null;
+    let _sortDeferred = false;
+
+    const originalTitle = document.title;
+    let titleFlashInterval = null;
+
+    const grid = document.getElementById('device-grid');
+
+    // --- TAILWIND: custom breakpoint ---
+    if (typeof tailwind !== 'undefined') {
+      tailwind.config = { theme: { screens: { 'xs': '420px', 'sm': '640px', 'md': '768px', 'lg': '1024px', 'xl': '1280px' } } };
+    }
+
+    // --- NOTIFICATIONS ---
+    function requestNotificationPermission() {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+
+    function sendNotification(title, body) {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try { new Notification(title, { body, tag: 'cold-chain-alert' }); } catch (e) { }
+      }
+    }
+
+    function startTitleFlash(msg) {
+      if (titleFlashInterval) return;
+      let show = true;
+      titleFlashInterval = setInterval(() => {
+        document.title = show ? msg : originalTitle;
+        show = !show;
+      }, 1000);
+    }
+
+    function stopTitleFlash() {
+      if (titleFlashInterval) {
+        clearInterval(titleFlashInterval);
+        titleFlashInterval = null;
+        document.title = originalTitle;
+      }
+    }
+
+    // --- KEYBOARD SHORTCUTS ---
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
+    });
+
+    // --- INITIALIZATION ---
+    function startMonitoring() {
+      document.getElementById('startup-overlay').style.display = 'none';
+      isMonitoring = true;
+      requestNotificationPermission();
+      renderFilterBar();
+      initConnection();
+    }
+
+    // --- ALARM ACKNOWLEDGEMENT ---
+    function acknowledgeAlarm() {
+      alarmMutedUntil = Date.now() + (15 * 60 * 1000);
+      AlarmTone.stop();
+
+      const btn = document.getElementById('btn-ack');
+      btn.innerHTML = '🔇 MUTED (15m)';
+      btn.classList.remove('hidden');
+      btn.classList.replace('text-red-500', 'text-slate-500');
+      btn.classList.replace('bg-red-500/20', 'bg-slate-800');
+      btn.classList.replace('border-red-500/50', 'border-slate-700');
+      btn.classList.remove('animate-pulse-slow');
+
+      setTimeout(() => {
+        alarmMutedUntil = 0;
+        // Only re-show alarm button if there are still critical devices
+        const hasCrit = document.getElementById('stat-crit').textContent !== '0';
+        if (hasCrit) {
+          btn.innerHTML = '🔕 MUTE ALARM (15m)';
+          btn.classList.replace('text-slate-500', 'text-red-500');
+          btn.classList.replace('bg-slate-800', 'bg-red-500/20');
+          btn.classList.replace('border-slate-700', 'border-red-500/50');
+          btn.classList.add('animate-pulse-slow');
+        } else {
+          btn.classList.add('hidden');
+        }
+      }, 15 * 60 * 1000);
+    }
+
+    // --- DEVICE CARD CREATION ---
+    function createDeviceCard(id, skipSetAdd) {
+      if (!skipSetAdd) {
+        if (knownDevices.has(id)) return;
+        knownDevices.add(id);
+      }
+
+      if (document.getElementById(`card-${id}`)) return;
+
+      const card = document.createElement('div');
+      card.id = `card-${id}`;
+      card.dataset.deviceId = id;
+      card.onclick = () => openDeviceModal(id);
+      card.title = 'Click to view History & Details';
+      card.className = 'glass p-4 rounded-3xl transition-all duration-300 hover:scale-[1.03] group border-transparent hover:border-cyan-500/50 cursor-pointer relative overflow-hidden card-enter';
+
+      card.innerHTML = `
+        <button class="el-delete-btn hidden absolute top-1 left-1 z-20 bg-red-500/80 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shadow-lg transition-all hover:scale-110" title="Delete device">✕</button>
+        <div class="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-cyan-500/20 p-1 rounded-full">
+           <svg class="w-2.5 h-2.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+        </div>
+        <div class="flex justify-between items-start mb-2">
+          <div class="flex flex-col truncate pr-2">
+            <span class="text-[14px] font-bold text-slate-200 uppercase leading-tight el-name truncate w-24 sm:w-32">--</span>
+            <span class="text-[9px] text-slate-500 tracking-wider el-id truncate">--</span>
+          </div>
+          <div class="el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full bg-slate-600 border border-slate-900 mt-1"></div>
+        </div>
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="el-zone bg-slate-700/50 text-slate-400 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest max-w-full truncate">--</span>
+          <span class="el-zone-range text-[8px] text-slate-600 font-mono"></span>
+        </div>
+        <div class="text-3xl font-light mb-1 mt-3 flex items-baseline leading-none">
+            <span class="el-val text-slate-400 tabular-nums">--</span>
+            <span class="text-sm ml-1 text-slate-600">°C</span>
+        </div>
+        <div class="flex gap-3 mt-1 mb-2">
+          <span class="text-[9px] text-blue-400/60 font-mono el-min-max"></span>
+        </div>
+        <div class="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden relative">
+            <div class="absolute inset-y-0 bg-white/10 z-0 el-safezone"></div>
+            <div class="el-progress relative z-10 h-full bg-cyan-500 transition-all duration-1000 shadow-[0_0_8px_rgba(6,182,212,0.5)]" style="width: 0%"></div>
+        </div>
+        <div class="flex justify-between items-end mt-3 border-t border-slate-700/50 pt-2">
+          <div class="text-[8px] text-slate-500/70 el-time leading-tight font-mono">Connecting...</div>
+          <div class="text-[8px] font-mono text-cyan-600/40 el-ip">0.0.0.0</div>
+        </div>`;
+
+      card.querySelector('.el-id').textContent = id;
+      card.querySelector('.el-delete-btn').addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); deleteDevice(id, e); });
+      grid.appendChild(card);
+      sortGrid();
+    }
+
+    // --- SORT ---
+    function setSortMode(mode) {
+      sortMode = mode;
+      document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(`sort-${mode}`).classList.add('active');
+      sortGrid();
+    }
+
+    function getStatusPriority(card) {
+      const ind = card.querySelector('.el-indicator');
+      if (ind.classList.contains('status-crit')) return 0;
+      if (ind.classList.contains('status-warn')) return 1;
+      if (ind.classList.contains('status-stale')) return 2;
+      if (ind.classList.contains('status-ok')) return 3;
+      return 4; // offline/unknown
+    }
+
+    function sortGrid() {
+      if (_sortDeferred) return;
+      const cards = Array.from(grid.children);
+      cards.sort((a, b) => {
+        if (sortMode === 'name') {
+          const nameA = a.querySelector('.el-name').textContent.toUpperCase();
+          const nameB = b.querySelector('.el-name').textContent.toUpperCase();
+          return nameA.localeCompare(nameB);
+        } else if (sortMode === 'temp') {
+          const tA = parseFloat(a.querySelector('.el-val').textContent) || -999;
+          const tB = parseFloat(b.querySelector('.el-val').textContent) || -999;
+          return tB - tA;
+        } else if (sortMode === 'status') {
+          return getStatusPriority(a) - getStatusPriority(b);
+        }
+        return 0;
+      });
+      cards.forEach(card => grid.appendChild(card));
+    }
+
+    // --- FILTER ---
+    function renderFilterBar() {
+      const bar = document.getElementById('filter-bar');
+      bar.innerHTML = '';
+
+      const zoneCounts = {};
+      const physicalIds = getPhysicalDeviceIds();
+      physicalIds.forEach(id => {
+        const z = normalizedDeviceZone(id);
+        zoneCounts[z] = (zoneCounts[z] || 0) + 1;
+      });
+
+      const zones = ['ALL', ...Array.from(knownZones).sort()];
+
+      zones.forEach(z => {
+        const btn = document.createElement('button');
+        btn.onclick = () => filterZone(z);
+        const count = z === 'ALL' ? physicalIds.length : (zoneCounts[z] || 0);
+        btn.innerHTML = `${z} <span class="ml-1 text-[9px] opacity-60">${count}</span>`;
+        btn.className = `btn-filter px-4 py-1.5 rounded-xl text-xs font-bold border transition-colors ${activeFilter === z
+            ? 'bg-cyan-600/20 text-cyan-400 border-cyan-500/30'
+            : 'bg-slate-700/50 text-slate-400 border-transparent hover:bg-slate-700'
+          }`;
+        bar.appendChild(btn);
+      });
+    }
+
+    function filterZone(zone) {
+      activeFilter = zone.toUpperCase();
+      renderFilterBar();
+
+      knownDevices.forEach(id => {
+        const card = document.getElementById(`card-${id}`);
+        if (!card) return;
+        const cardZone = card.querySelector('.el-zone').textContent.toUpperCase();
+        if (activeFilter === 'ALL' || cardZone === activeFilter) {
+          card.classList.remove('hidden');
+        } else {
+          card.classList.add('hidden');
+        }
+      });
+    }
+
+    function handleSearch() {
+      const query = document.getElementById('search-box').value.toUpperCase();
+      knownDevices.forEach(id => {
+        const card = document.getElementById(`card-${id}`);
+        if (!card) return;
+        const name = card.querySelector('.el-name').textContent.toUpperCase();
+        const actualId = id.toUpperCase();
+        const zone = card.querySelector('.el-zone').textContent.toUpperCase();
+        const isMatch = name.includes(query) || actualId.includes(query) || zone.includes(query);
+        const isZoneMatch = activeFilter === 'ALL' || card.querySelector('.el-zone').textContent === activeFilter;
+
+        if (isMatch && isZoneMatch) {
+          card.classList.remove('hidden');
+        } else {
+          card.classList.add('hidden');
+        }
+      });
+    }
+
+    // --- MODAL & CHART ---
+    function openDeviceModal(id) {
+      currentModalDeviceId = id;
+      currentChartRange = '1h';
+      const modal = document.getElementById('chart-modal');
+      const inner = document.getElementById('chart-modal-content');
+      const card = document.getElementById(`card-${id}`);
+      if (!card) return;
+
+      document.getElementById('modal-title').textContent = card.querySelector('.el-name').textContent;
+      document.getElementById('modal-subtitle').textContent = `Device ID: ${id} | IP: ${deviceIPs[id] || 'Unknown'}`;
+
+      // Detail stats
+      const temp = deviceLastTemp[id];
+      document.getElementById('modal-temp').textContent = temp !== undefined ? temp.toFixed(1) + '°C' : '--°C';
+      document.getElementById('modal-min').textContent = '--°C';
+      document.getElementById('modal-max').textContent = '--°C';
+
+      const zoneClean = (deviceZones[id] || '').trim().toUpperCase();
+      const configKey = THRESHOLDS[zoneClean] ? zoneClean : 'default';
+      const threshold = THRESHOLDS[configKey];
+      document.getElementById('modal-zone').textContent = zoneClean || 'DEFAULT';
+      document.getElementById('modal-range').textContent = `${threshold.min}°C ~ ${threshold.max}°C`;
+
+      // Status badge
+      const indicatorColor = card.querySelector('.el-indicator').className;
+      const badge = document.getElementById('modal-status-badge');
+      badge.className = `px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border ${indicatorColor.includes('status-crit') ? 'bg-red-500/20 text-red-500 border-red-500' :
+          indicatorColor.includes('status-warn') ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500' :
+            indicatorColor.includes('status-stale') ? 'bg-orange-500/20 text-orange-500 border-orange-500' :
+              indicatorColor.includes('bg-slate-700') ? 'bg-slate-500/20 text-slate-400 border-slate-500' :
+                'bg-green-500/20 text-green-500 border-green-500'
+        }`;
+      badge.textContent = indicatorColor.includes('status-crit') ? 'CRITICAL' :
+        indicatorColor.includes('status-warn') ? 'WARNING' :
+          indicatorColor.includes('status-stale') ? 'STALE' :
+            indicatorColor.includes('bg-slate-700') ? 'OFFLINE' : 'ONLINE';
+
+      updateRangeBar('1h');
+
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        inner.classList.remove('scale-95');
+      }, 10);
+
+      fetchChartFromServer(id, '1h');
+
+      // Sync admin delete button visibility
+      const modalDel = document.getElementById('modal-delete-btn');
+      if (modalDel) modalDel.classList.toggle('hidden', !adminMode);
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('chart-modal');
+      const inner = document.getElementById('chart-modal-content');
+
+      modal.classList.add('opacity-0');
+      inner.classList.add('scale-95');
+      currentModalDeviceId = null;
+
+      setTimeout(() => {
+        modal.classList.add('hidden');
+      }, 300);
+    }
+
+    function openDeviceWindow() {
+      if (currentModalDeviceId) {
+        window.open(`${CONFIG.apiBase}/device.html?id=${encodeURIComponent(currentModalDeviceId)}`, '_blank', 'noopener,noreferrer');
+      }
+    }
+
+    // --- CHART RANGE ---
+    function updateRangeBar(active) {
+      document.querySelectorAll('.chart-range-btn').forEach(btn => {
+        const isActive = btn.textContent.trim().toLowerCase() === active;
+        btn.className = `chart-range-btn px-3 py-1 rounded-lg text-xs font-bold border transition-colors ${isActive ? 'bg-cyan-600/20 text-cyan-400 border-cyan-500/30' : 'bg-slate-700/50 text-slate-400 border-transparent hover:bg-slate-700'
+          }`;
+      });
+    }
+
+    function setChartRange(range) {
+      if (!currentModalDeviceId) return;
+      currentChartRange = range;
+      updateRangeBar(range);
+      fetchChartFromServer(currentModalDeviceId, range);
+    }
+
+    function safeFetchTimeout(ms) {
+      if (typeof AbortSignal.timeout === 'function') return { signal: AbortSignal.timeout(ms) };
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), ms);
+      return { signal: ctrl.signal };
+    }
+
+    function fetchChartFromServer(id, range) {
+      const loadingEl = document.getElementById('chart-loading');
+      loadingEl.classList.remove('hidden');
+
+      fetch(`${CONFIG.apiBase}/api/devices/${encodeURIComponent(id)}/telemetry?range=${range}`, safeFetchTimeout(8000))
+        .then(r => r.json())
+        .then(data => {
+          loadingEl.classList.add('hidden');
+          if (data && data.points) {
+            renderChartWithTelemetry(id, data.points);
+            // Update min/max from server data
+            const temps = data.points.map(p => p.temp_c).filter(t => typeof t === 'number');
+            if (temps.length) {
+              document.getElementById('modal-min').textContent = Math.min(...temps).toFixed(1) + '°C';
+              document.getElementById('modal-max').textContent = Math.max(...temps).toFixed(1) + '°C';
+            }
+          }
+        })
+        .catch(() => {
+          loadingEl.classList.add('hidden');
+        });
+    }
+
+    function renderChartWithTelemetry(id, points) {
+      const ctx = document.getElementById('historyChart').getContext('2d');
+      const configKey = deviceConfigMap[id] || 'default';
+      const threshold = THRESHOLDS[configKey] || THRESHOLDS.default;
+
+      if (historyChartInstance) historyChartInstance.destroy();
+
+      const labels = points.map(point => {
+        const timestamp = new Date(point.ts_server);
+        return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      });
+      const rawData = points.map(point => point.temp_c);
+
+      historyChartInstance = buildChart(ctx, labels, rawData, threshold);
+    }
+
+    function buildChart(ctx, labels, dataPoints, threshold) {
+      const minLine = new Array(labels.length).fill(threshold.min);
+      const maxLine = new Array(labels.length).fill(threshold.max);
+
+      // Compute good Y-axis range
+      let dataMin = dataPoints.length ? Math.min(...dataPoints) : threshold.min;
+      let dataMax = dataPoints.length ? Math.max(...dataPoints) : threshold.max;
+      const yMin = Math.min(dataMin, threshold.min) - 3;
+      const yMax = Math.max(dataMax, threshold.max) + 3;
+
+      return new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Temperature °C',
+              data: dataPoints,
+              borderColor: '#06b6d4',
+              backgroundColor: 'rgba(6, 182, 212, 0.1)',
+              borderWidth: 2,
+              pointRadius: dataPoints.length > 30 ? 0 : 3,
+              pointBackgroundColor: '#06b6d4',
+              fill: true,
+              tension: 0.4
+            },
+            {
+              label: `Min Safe (${threshold.min}°C)`,
+              data: minLine,
+              borderColor: '#ef444480',
+              borderWidth: 1,
+              borderDash: [5, 5],
+              pointRadius: 0,
+              fill: false
+            },
+            {
+              label: `Max Safe (${threshold.max}°C)`,
+              data: maxLine,
+              borderColor: '#ef444480',
+              borderWidth: 1,
+              borderDash: [5, 5],
+              pointRadius: 0,
+              fill: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              backgroundColor: 'rgba(15, 23, 42, 0.9)',
+              titleColor: '#94a3b8',
+              bodyColor: '#fff',
+              borderColor: '#334155',
+              borderWidth: 1,
+              filter: (item) => item.datasetIndex === 0
+            }
+          },
+          scales: {
+            y: {
+              grid: { color: '#334155', drawBorder: false },
+              ticks: { color: '#94a3b8' },
+              min: yMin,
+              max: yMax
+            },
+            x: {
+              grid: { display: false },
+              ticks: { color: '#94a3b8', maxTicksLimit: 8 }
+            }
+          }
+        }
+      });
+    }
+
+    // --- MAIN DATA HANDLER ---
+    function setConnectionBadge(label, colorClass, indicatorClass) {
+      const statusEl = document.getElementById('mqtt-status');
+      const indicatorEl = document.getElementById('mqtt-indicator');
+      statusEl.textContent = label;
+      statusEl.className = `text-xs font-semibold ${colorClass} uppercase`;
+      indicatorEl.className = indicatorClass;
+    }
+
+    function applyBackendThreshold(zone, thresholds) {
+      if (!zone || !thresholds) return;
+      THRESHOLDS[zone.trim().toUpperCase()] = {
+        min: thresholds.min,
+        max: thresholds.max,
+        warnMargin: thresholds.warn_margin ?? THRESHOLDS.default.warnMargin,
+        label: zone
+      };
+    }
+
+    function applyBackendDevice(device) {
+      if (!device || !device.id) return;
+
+      const zone = device.zone || device.z || 'UNASSIGNED';
+      const name = device.name || device.n || device.id;
+      const ip = device.ip || '';
+      applyBackendThreshold(zone, device.thresholds);
+
+      if (typeof device.last_temp_c === 'number') {
+        updateUI(device.id, device.last_temp_c, ip, name, zone);
+      } else {
+        // No temp yet — still populate card metadata
+        createDeviceCard(device.id);
+        if (name) deviceNames[device.id] = name;
+        if (zone) deviceZones[device.id] = zone;
+        if (ip) deviceIPs[device.id] = ip;
+
+        const card = document.getElementById(`card-${device.id}`);
+        if (card) {
+          const nameEl = card.querySelector('.el-name');
+          const zoneEl = card.querySelector('.el-zone');
+          const ipEl = card.querySelector('.el-ip');
+          const idEl = card.querySelector('.el-id');
+          if (nameEl && name) nameEl.textContent = name;
+          if (zoneEl && zone) {
+            const zoneClean = zone.trim().toUpperCase();
+            zoneEl.textContent = zoneClean;
+            if (zoneClean && !knownZones.has(zoneClean)) {
+              knownZones.add(zoneClean);
+              renderFilterBar();
+            }
+          }
+          if (ipEl) ipEl.textContent = ip || 'No IP';
+          if (idEl) idEl.textContent = device.id;
+        }
+      }
+
+      if (device.last_seen_at) {
+        const seenAt = Date.parse(device.last_seen_at);
+        if (!Number.isNaN(seenAt)) {
+          deviceStates[device.id] = seenAt;
+        }
+      }
+
+      if (device.status === 'offline') {
+        deviceStates[device.id] = Date.now() - CONFIG.offlineTimeout - 1000;
+      }
+
+      // Apply backend status to card immediately
+      if (device.status) {
+        const card = document.getElementById(`card-${device.id}`);
+        if (card) {
+          const ind = card.querySelector('.el-indicator');
+          const timeEl = card.querySelector('.el-time');
+          const valEl = card.querySelector('.el-val');
+          if (device.status === 'offline') {
+            ind.className = 'el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full bg-slate-700 mt-1';
+            if (typeof device.last_temp_c !== 'number') {
+              valEl.textContent = 'OFF';
+              valEl.className = 'el-val text-slate-600 tabular-nums';
+            }
+            timeEl.textContent = 'OFFLINE';
+            card.querySelector('.el-progress').style.width = '0%';
+            card.classList.remove('ring-alert');
+          } else if (device.status === 'stale') {
+            ind.className = 'el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full status-stale mt-1';
+            timeEl.textContent = 'STALE';
+          } else if (typeof device.last_temp_c !== 'number' && device.status === 'online') {
+            ind.className = 'el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse mt-1';
+            timeEl.textContent = 'Online (no data)';
+          }
+        }
+      }
+
+      // Update modal temp live if open
+      if (currentModalDeviceId === device.id && typeof device.last_temp_c === 'number') {
+        document.getElementById('modal-temp').textContent = device.last_temp_c.toFixed(1) + '°C';
+      }
+    }
+
+    function loadSnapshot() {
+      setConnectionBadge('Loading...', 'text-yellow-500', 'w-2 h-2 rounded-full bg-yellow-500 animate-pulse');
+      document.getElementById('data-source').textContent = 'Backend API';
+      return fetch(`${CONFIG.apiBase}/api/devices`, safeFetchTimeout(8000))
+        .then(r => r.json())
+        .then(result => {
+          if (!result || !result.devices) return;
+          _sortDeferred = true;
+          result.devices.forEach(applyBackendDevice);
+          _sortDeferred = false;
+          sortGrid();
+          updateStats();
+        });
+    }
+
+    function connectRealtime() {
+      const socket = new WebSocket(CONFIG.wsUrl);
+
+      socket.addEventListener('open', () => {
+        wsReconnectDelay = 1000;
+        setConnectionBadge('Connected Live', 'text-cyan-400', 'w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]');
+      });
+
+      socket.addEventListener('close', () => {
+        setConnectionBadge('Reconnecting...', 'text-yellow-500', 'w-2 h-2 rounded-full bg-yellow-500 animate-pulse');
+        setTimeout(connectRealtime, wsReconnectDelay);
+        wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
+      });
+
+      socket.addEventListener('error', () => {
+        setConnectionBadge('Backend Error', 'text-red-500', 'w-2 h-2 rounded-full bg-red-500');
+      });
+
+      socket.addEventListener('message', event => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'snapshot' && payload.devices) {
+            payload.devices.forEach(applyBackendDevice);
+          }
+          if ((payload.type === 'telemetry' || payload.type === 'status') && payload.device) {
+            applyBackendDevice(payload.device);
+          }
+          if (payload.type === 'device_deleted' && payload.device_id) {
+            removeDeviceFromUI(payload.device_id);
+          }
+          updateStats();
+        } catch (error) {
+          console.warn('Invalid backend event', error);
+        }
+      });
+    }
+
+    function initConnection() {
+      loadSnapshot()
+        .catch(() => {
+          setConnectionBadge('API Unreachable', 'text-red-500', 'w-2 h-2 rounded-full bg-red-500');
+        })
+        .finally(() => {
+          connectRealtime();
+          setInterval(() => {
+            loadSnapshot().catch(() => { });
+          }, 30000);
+        });
+    }
+
+    function updateUI(id, temp, ip, name, zone) {
+      createDeviceCard(id);
+
+      deviceStates[id] = Date.now();
+      deviceIPs[id] = ip || '';
+      if (name) deviceNames[id] = name;
+      if (zone) deviceZones[id] = zone;
+      deviceLastTemp[id] = temp;
+
+      updateCardVisuals(id, temp, ip, name, zone);
+    }
+
+    function updateCardVisuals(id, temp, ip, name, zone) {
+      const card = document.getElementById(`card-${id}`);
+      if (!card) return;
+
+      const zoneClean = zone ? zone.trim().toUpperCase() : '';
+      const configKey = THRESHOLDS[zoneClean] ? zoneClean : 'default';
+      deviceConfigMap[id] = configKey;
+      const threshold = THRESHOLDS[configKey];
+
+      const valEl = card.querySelector('.el-val');
+      const ipEl = card.querySelector('.el-ip');
+      const nameEl = card.querySelector('.el-name');
+      const zoneEl = card.querySelector('.el-zone');
+      const zoneRangeEl = card.querySelector('.el-zone-range');
+      const timeEl = card.querySelector('.el-time');
+      const indEl = card.querySelector('.el-indicator');
+      const progEl = card.querySelector('.el-progress');
+      const safeZoneEl = card.querySelector('.el-safezone');
+      const minMaxEl = card.querySelector('.el-min-max');
+
+      valEl.textContent = temp.toFixed(1);
+      valEl.className = 'el-val text-white tabular-nums';
+      ipEl.textContent = ip || 'No IP';
+
+      if (name && nameEl.textContent !== name) {
+        nameEl.textContent = name;
+        sortGrid();
+      }
+      if (zoneClean && zoneEl.textContent !== zoneClean) {
+        zoneEl.textContent = zoneClean;
+        zoneRangeEl.textContent = `(${threshold.min}~${threshold.max}°C)`;
+      }
+
+      if (zoneClean && !knownZones.has(zoneClean)) {
+        knownZones.add(zoneClean);
+        renderFilterBar();
+      }
+
+      if (activeFilter !== 'ALL' && zoneClean !== activeFilter) {
+        card.classList.add('hidden');
+      } else {
+        card.classList.remove('hidden');
+      }
+
+      // Dynamic Cold Chain Scale
+      const scaleMin = threshold.min - 5;
+      const scaleMax = threshold.max + 5;
+      const safeZoneLeft = Math.max(0, ((threshold.min - scaleMin) / (scaleMax - scaleMin)) * 100);
+      const safeZoneWidth = Math.min(100, ((threshold.max - threshold.min) / (scaleMax - scaleMin)) * 100);
+
+      safeZoneEl.style.left = `${safeZoneLeft}%`;
+      safeZoneEl.style.width = `${safeZoneWidth}%`;
+
+      let percent = ((temp - scaleMin) / (scaleMax - scaleMin)) * 100;
+      progEl.style.width = Math.min(Math.max(percent, 0), 100) + '%';
+
+      // Status Color
+      let isSafe = (temp >= threshold.min && temp <= threshold.max);
+
+      let newClass = 'el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full mt-1 ';
+      if (isSafe) {
+        if ((temp < threshold.min + threshold.warnMargin) || (temp > threshold.max - threshold.warnMargin)) {
+          newClass += 'status-warn';
+          progEl.className = 'el-progress relative z-10 h-full bg-yellow-400 transition-all duration-1000 shadow-[0_0_8px_rgba(250,204,21,0.5)]';
+        } else {
+          newClass += 'status-ok';
+          progEl.className = 'el-progress relative z-10 h-full bg-green-500 transition-all duration-1000 shadow-[0_0_8px_rgba(34,197,94,0.5)]';
+        }
+        card.classList.remove('ring-alert');
+      } else {
+        newClass += 'status-crit';
+        progEl.className = 'el-progress relative z-10 h-full bg-red-500 transition-all duration-1000 shadow-[0_0_12px_rgba(239,68,68,0.8)]';
+        card.classList.add('ring-alert');
+      }
+
+      indEl.className = newClass;
+      timeEl.textContent = new Date().toLocaleTimeString();
+    }
+
+    // --- AGGREGATION & ALARMS ---
+    function updateStats() {
+      let online = 0, warn = 0, crit = 0, stale = 0, offline = 0;
+      const now = Date.now();
+      const physicalIds = getPhysicalDeviceIds();
+
+      physicalIds.forEach(id => {
+        const lastSeen = deviceStates[id] || 0;
+        const card = document.getElementById(`card-${id}`);
+        if (!card) return;
+        const ind = card.querySelector('.el-indicator');
+
+        if (lastSeen === 0 || now - lastSeen >= CONFIG.offlineTimeout) {
+          offline++;
+        } else if (now - lastSeen >= CONFIG.staleTimeout) {
+          stale++;
+        } else {
+          online++;
+          if (ind.classList.contains('status-warn')) warn++;
+          if (ind.classList.contains('status-crit')) crit++;
+        }
+      });
+
+      document.getElementById('stat-total').textContent = physicalIds.length;
+      document.getElementById('stat-online').textContent = online;
+      document.getElementById('stat-warn').textContent = warn;
+      document.getElementById('stat-crit').textContent = crit;
+      document.getElementById('stat-offline').textContent = stale + offline;
+
+      const critBox = document.getElementById('stat-crit-box');
+      if (crit > 0) {
+        critBox.classList.add('bg-red-500/10', 'border-red-500');
+        critBox.classList.remove('glass');
+      } else {
+        critBox.classList.remove('bg-red-500/10', 'border-red-500');
+        critBox.classList.add('glass');
+      }
+
+      // Alarm logic
+      const btnAck = document.getElementById('btn-ack');
+      const ackDivider = document.getElementById('ack-divider');
+
+      if (crit > 0) {
+        startTitleFlash(`🚨 ${crit} CRITICAL - Cold Chain Alert!`);
+
+        if (now > alarmMutedUntil) {
+          if (AlarmTone.paused && isMonitoring) {
+            AlarmTone.play();
+            sendNotification('Cold Chain CRITICAL', `${crit} device(s) out of safe temperature range!`);
+          }
+          btnAck.classList.remove('hidden');
+          btnAck.classList.replace('text-slate-500', 'text-red-500');
+          btnAck.classList.replace('bg-slate-800', 'bg-red-500/20');
+          btnAck.classList.replace('border-slate-700', 'border-red-500/50');
+          btnAck.classList.add('animate-pulse-slow');
+          btnAck.innerHTML = '🔕 MUTE ALARM (15m)';
+          ackDivider.classList.remove('hidden');
+        }
+      } else {
+        stopTitleFlash();
+        AlarmTone.stop();
+        if (now > alarmMutedUntil) {
+          btnAck.classList.add('hidden');
+          ackDivider.classList.add('hidden');
+        }
+      }
+    }
+
+    // --- WATCHDOG ---
+    setInterval(() => {
+      if (!isMonitoring) return;
+      const now = Date.now();
+      knownDevices.forEach(id => {
+        const card = document.getElementById(`card-${id}`);
+        if (!card) return;
+        const lastSeen = deviceStates[id] || 0;
+        if (lastSeen === 0) return;
+
+        const elapsed = now - lastSeen;
+        const ind = card.querySelector('.el-indicator');
+
+        if (elapsed > CONFIG.offlineTimeout) {
+          ind.className = 'el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full bg-slate-700 mt-1';
+          card.querySelector('.el-val').textContent = 'OFF';
+          card.querySelector('.el-val').className = 'el-val text-slate-600 tabular-nums';
+          card.querySelector('.el-time').textContent = 'OFFLINE (' + Math.round(elapsed / 60000) + 'm)';
+          card.querySelector('.el-progress').style.width = '0%';
+          card.classList.remove('ring-alert');
+        } else if (elapsed > CONFIG.staleTimeout) {
+          ind.className = 'el-indicator flex-shrink-0 w-2.5 h-2.5 rounded-full status-stale mt-1';
+          card.querySelector('.el-time').textContent = 'STALE (' + Math.round(elapsed / 1000) + 's)';
+        }
+      });
+      updateStats();
+      renderFilterBar();
+    }, 5000);
+
+    // --- ADMIN MODE ---
+    function toggleAdminMode() {
+      adminMode = !adminMode;
+      const btn = document.getElementById('btn-admin');
+      if (adminMode) {
+        btn.classList.replace('bg-slate-800/50', 'bg-red-500/20');
+        btn.classList.replace('text-slate-500', 'text-red-400');
+        btn.classList.replace('border-slate-700', 'border-red-500/50');
+        btn.innerHTML = '⚙ Admin ON';
+      } else {
+        btn.classList.replace('bg-red-500/20', 'bg-slate-800/50');
+        btn.classList.replace('text-red-400', 'text-slate-500');
+        btn.classList.replace('border-red-500/50', 'border-slate-700');
+        btn.innerHTML = '⚙ Admin';
+      }
+      document.querySelectorAll('.el-delete-btn').forEach(b => b.classList.toggle('hidden', !adminMode));
+      const modalDel = document.getElementById('modal-delete-btn');
+      if (modalDel) modalDel.classList.toggle('hidden', !adminMode);
+      // Show/hide clear offline button with admin mode
+      const clearBtn = document.getElementById('btn-clear-offline');
+      if (clearBtn) clearBtn.classList.toggle('hidden', !adminMode);
+    }
+
+    function clearOfflineDevices() {
+      // Collect all offline/stale device IDs from UI
+      const toDelete = [];
+      knownDevices.forEach(id => {
+        const lastSeen = deviceStates[id] || 0;
+        const isOfflineOrStale = (Date.now() - lastSeen > CONFIG.staleTimeout) || lastSeen === 0;
+        if (isOfflineOrStale) toDelete.push(id);
+      });
+
+      if (toDelete.length === 0) {
+        alert('No offline or stale devices to remove.');
+        return;
+      }
+
+      const names = toDelete.map(id => deviceNames[id] || id).join('\n  • ');
+      if (!confirm(`Remove ${toDelete.length} offline/stale device(s)?\n\n  • ${names}\n\nThis will delete ALL their telemetry history and cannot be undone.`)) return;
+
+      let done = 0;
+      let failed = 0;
+      const total = toDelete.length;
+
+      toDelete.forEach(id => {
+        fetch(`${CONFIG.apiBase}/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' })
+          .then(r => { if (!r.ok) throw new Error('fail'); return r.json(); })
+          .then(() => { removeDeviceFromUI(id); })
+          .catch(() => { failed++; })
+          .finally(() => {
+            done++;
+            if (done === total) {
+              updateStats();
+              if (failed > 0) alert(`Done. ${total - failed} removed, ${failed} failed.`);
+            }
+          });
+      });
+    }
+
+    function deleteDevice(id, event) {
+      if (event) { event.stopPropagation(); event.preventDefault(); }
+      const name = deviceNames[id] || id;
+      if (!confirm(`Delete device "${name}" (${id})?\n\nThis will remove ALL telemetry history, alerts, and sync queue for this device. This cannot be undone.`)) return;
+      fetch(`${CONFIG.apiBase}/api/devices/${encodeURIComponent(id)}`, { method: 'DELETE' })
+        .then(r => { if (!r.ok) throw new Error('Delete failed'); return r.json(); })
+        .then(() => {
+          if (currentModalDeviceId === id) closeModal();
+          removeDeviceFromUI(id);
+          updateStats();
+        })
+        .catch(err => alert('Failed to delete device: ' + err.message));
+    }
+
+    function deleteDeviceFromModal() {
+      if (!currentModalDeviceId) return;
+      deleteDevice(currentModalDeviceId);
+    }
+
+    function removeDeviceFromUI(id) {
+      const card = document.getElementById(`card-${id}`);
+      if (card) {
+        card.style.transition = 'opacity 0.3s, transform 0.3s';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.9)';
+        setTimeout(() => card.remove(), 300);
+      }
+      knownDevices.delete(id);
+      delete deviceStates[id];
+      delete deviceIPs[id];
+      delete deviceNames[id];
+      delete deviceZones[id];
+      delete deviceConfigMap[id];
+      delete deviceLastTemp[id];
+      if (currentModalDeviceId === id) closeModal();
+      renderFilterBar();
+    }
+
+    // Server Clock
+    setInterval(() => {
+      document.getElementById('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }, 1000);
+  </script>
+</body>
+
+</html>
