@@ -315,6 +315,9 @@ function createCardHTML(key, dev) {
       <div class="text-3xl font-light ${tempColor(status)} tabular-nums mb-2">${status === 'stale' ? '---' : dev.temp.toFixed(1) + '°C'}</div>
       <div class="flex justify-between items-center text-[10px]">
         <span class="text-slate-500 tabular-nums el-time">${timeSince(dev.lastSeen)}</span>
+        <span class="text-cyan-600/60 font-mono el-ip">${deviceIPs[key] || ''}</span>
+      </div>
+      <div class="flex justify-between items-center mt-1 text-[10px]">
         <span class="text-slate-600">2–8°C</span>
       </div>
       <div class="flex justify-end mt-2 mb-1">
@@ -365,6 +368,9 @@ function updateCard(key) {
   // Update time
   const timeEl = el.querySelector('.el-time');
   if (timeEl) timeEl.textContent = timeSince(dev.lastSeen);
+  // Update IP
+  const ipEl = el.querySelector('.el-ip');
+  if (ipEl) ipEl.textContent = deviceIPs[key] || '';
   // Progress bar
   const prog = el.querySelector('.h-full');
   if (prog) {

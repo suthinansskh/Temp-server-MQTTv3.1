@@ -38,6 +38,8 @@ void handleRoot();
 void handleSave();
 void handleReboot();
 void handleApi();
+void handleUpdate();
+void handleSendIP();
 
 // --- CONFIGURABLE SETTINGS (saved to LittleFS) ---
 char cfg_mqtt_server[80] = "4bdec66bf5984176a4d9eba86f41c7e9.s1.eu.hivemq.cloud";
@@ -55,7 +57,7 @@ const unsigned long OTA_CHECK_INTERVAL = 300000; // 5 minutes — HTTP OTA check
 
 // --- HTTP OTA CONFIG ---
 const char* OTA_URL = "http://14.11.0.85/Drug/AutoPrint/IOT/firmware.bin";
-const char* FW_VERSION = "7.0.1";
+const char* FW_VERSION = "7.1.0";
 
 // --- HARDWARE SETUP ---
 // Pin mapping: D1=5, D2=4, D3=0, D4=2, D5=14, D6=12, D7=13
@@ -235,8 +237,15 @@ void handleRoot() {
   webServer.sendContent(F("</div><div class='card'><div class='h'>Google Sheets</div>"));
   webServer.sendContent(F("<label>Script ID</label><input name='sheets' value='")); webServer.sendContent(htmlEscape(cfg_sheets_id)); webServer.sendContent(F("'>"));
   webServer.sendContent(F("</div><button type='submit' class='btn btn-s'>Save &amp; Apply</button></form>"));
-  webServer.sendContent(F("<form method='POST' action='/reboot'><button type='submit' class='btn btn-r' "
-    "onclick=\"return confirm('Reboot device?')\">Reboot</button></form>"));
+  webServer.sendContent(F("<div class='card'><div class='h'>Actions</div>"
+    "<form method='POST' action='/update'><button type='submit' class='btn btn-s' "
+    "onclick=\"return confirm('Update firmware from server?')\">Update Firmware</button></form>"
+    "<form method='POST' action='/sendip'><button type='submit' class='btn btn-s' "
+    "style='background:linear-gradient(135deg,#3b82f6,#8b5cf6);margin-top:8px' "
+    "onclick=\"return confirm('Send IP via MQTT?')\">Send IP via MQTT</button></form>"
+    "<form method='POST' action='/reboot'><button type='submit' class='btn btn-r' "
+    "onclick=\"return confirm('Reboot device?')\">Reboot</button></form>"
+    "</div>"));
   webServer.sendContent(F("</div></body></html>"));
   webServer.sendContent("");
 }
@@ -277,10 +286,47 @@ void handleApi() {
   webServer.send(200, "application/json", json);
 }
 
+void handleUpdate() {
+  webServer.send(200, "text/html",
+    "<html><body style='background:#0f172a;color:#f8fafc;font-family:system-ui;text-align:center;padding:60px'>"
+    "<h2>Updating Firmware...</h2><p>Please wait. Device will reboot when done.</p>"
+    "<p>If update fails, device will return in 30s</p>"
+    "<script>setTimeout(()=>location='/',30000)</script></body></html>");
+  delay(500);
+  checkHttpOTA();
+}
+
+void handleSendIP() {
+  char ipMsg[128];
+  snprintf(ipMsg, sizeof(ipMsg),
+    "{\"name\":\"%s\",\"ip\":\"%s\",\"mac\":\"%s\",\"rssi\":%d,\"fw\":\"%s\"}",
+    cfg_device_name, WiFi.localIP().toString().c_str(),
+    WiFi.macAddress().c_str(), WiFi.RSSI(), FW_VERSION);
+  char ipTopic[80];
+  snprintf(ipTopic, sizeof(ipTopic), "factory/%s/ip/%s", cfg_device_zone, cfg_device_name);
+  bool ok = false;
+  if (mqttClient.connected()) {
+    ok = mqttClient.publish(ipTopic, ipMsg);
+  }
+  String html = "<html><body style='background:#0f172a;color:#f8fafc;font-family:system-ui;text-align:center;padding:60px'>";
+  if (ok) {
+    html += "<h2 style='color:#22c55e'>IP Sent!</h2>";
+    html += "<p>Published to: " + String(ipTopic) + "</p>";
+    html += "<p>" + String(ipMsg) + "</p>";
+  } else {
+    html += "<h2 style='color:#ef4444'>Send Failed</h2>";
+    html += "<p>MQTT not connected or publish failed</p>";
+  }
+  html += "<script>setTimeout(()=>location='/',3000)</script></body></html>";
+  webServer.send(200, "text/html", html);
+}
+
 void setupWebServer() {
   webServer.on("/", HTTP_GET, handleRoot);
   webServer.on("/save", HTTP_POST, handleSave);
   webServer.on("/reboot", HTTP_POST, handleReboot);
+  webServer.on("/update", HTTP_POST, handleUpdate);
+  webServer.on("/sendip", HTTP_POST, handleSendIP);
   webServer.on("/api/status", HTTP_GET, handleApi);
   webServer.begin();
   Serial.printf("Web Config: http://%s/\n", WiFi.localIP().toString().c_str());
@@ -389,7 +435,8 @@ void sendToGoogleSheets(float temp) {
   String url = "https://script.google.com/macros/s/" + String(cfg_sheets_id) + "/exec" +
                "?id=" + String(clientId) +
                "&name=" + String(cfg_device_name) +
-               "&temp=" + String(temp);
+               "&temp=" + String(temp) +
+               "&ip=" + WiFi.localIP().toString();
 
   Serial.print("Logging to Sheets: ");
   if (http.begin(httpsClient, url)) {

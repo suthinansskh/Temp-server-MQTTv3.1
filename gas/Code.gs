@@ -41,7 +41,7 @@ function getOrCreateDataLogSheet_(ss) {
   var sheet = ss.getSheetByName("DataLog");
   if (!sheet) {
     sheet = ss.insertSheet("DataLog");
-    sheet.appendRow(["Timestamp", "DeviceID", "Temperature", "DeviceName", "Zone"]);
+    sheet.appendRow(["Timestamp", "DeviceID", "Temperature", "DeviceName", "Zone", "IP"]);
   }
   return sheet;
 }
@@ -50,7 +50,7 @@ function flushDataLogRows_(rows) {
   if (!rows || rows.length === 0) return;
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = getOrCreateDataLogSheet_(ss);
-  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
 }
 
 function enqueueDataLogRow_(row) {
@@ -96,6 +96,22 @@ function flushBufferedDataLog() {
 }
 
 function doGet(e) {
+  // If query params contain id & temp, log data from ESP device
+  if (e && e.parameter && e.parameter.id && e.parameter.temp) {
+    var temp = parseFloat(e.parameter.temp);
+    if (isNaN(temp) || temp < -50 || temp > 100) {
+      return jsonResponse_({ status: "error", message: "Invalid temperature" }, 400);
+    }
+    enqueueDataLogRow_([
+      new Date(),
+      e.parameter.id || "unknown",
+      temp,
+      e.parameter.name || "",
+      e.parameter.zone || "",
+      e.parameter.ip || ""
+    ]);
+    return jsonResponse_({ status: "ok" }, 200);
+  }
   return HtmlService.createHtmlOutputFromFile('dashboard')
     .setTitle('Sisaket Hospital - Cold Chain Monitoring')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -152,7 +168,8 @@ function doPost(e) {
       data.device_id || "unknown",
       temp,
       data.name || "",
-      data.zone || ""
+      data.zone || "",
+      data.ip || ""
     ]);
     return jsonResponse_({ status: "ok" }, 200);
   } catch (err) {
