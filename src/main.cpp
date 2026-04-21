@@ -49,6 +49,7 @@ char cfg_mqtt_pass[40]   = "Admin10700";
 char cfg_device_name[40] = "MED-FRIDGE-01";
 char cfg_device_zone[20] = "zone-A";
 char cfg_sheets_id[80]   = "AKfycbywcMpt8qnaSsNrstUir05ZpFrSK7UHMLBwg9qUz8mfwH9S-tYfGoDtPCDLhujPfAGeSQ";
+char cfg_ota_url[160]    = "http://14.11.0.85/Drug/AutoPrint/IOT/firmware.bin";
 
 // --- TIMING CONFIG ---
 const unsigned long MQTT_INTERVAL   = 10000;    // 10 seconds — Dashboard real-time
@@ -56,8 +57,7 @@ const unsigned long SHEETS_INTERVAL = 1200000;  // 20 minutes — Google Sheets 
 const unsigned long OTA_CHECK_INTERVAL = 300000; // 5 minutes — HTTP OTA check
 
 // --- HTTP OTA CONFIG ---
-const char* OTA_URL = "http://14.11.0.85/Drug/AutoPrint/IOT/firmware.bin";
-const char* FW_VERSION = "7.1.0";
+const char* FW_VERSION = "7.1.1";
 
 // --- HARDWARE SETUP ---
 // Pin mapping: D1=5, D2=4, D3=0, D4=2, D5=14, D6=12, D7=13
@@ -123,6 +123,7 @@ void loadConfig() {
   readLine(cfg_device_name, sizeof(cfg_device_name));
   readLine(cfg_device_zone, sizeof(cfg_device_zone));
   readLine(cfg_sheets_id, sizeof(cfg_sheets_id));
+  readLine(cfg_ota_url, sizeof(cfg_ota_url));
   f.close();
   Serial.println("Config loaded from LittleFS");
 }
@@ -137,6 +138,7 @@ void saveConfig() {
   f.println(cfg_device_name);
   f.println(cfg_device_zone);
   f.println(cfg_sheets_id);
+  f.println(cfg_ota_url);
   f.close();
   Serial.println("Config saved to LittleFS");
 }
@@ -236,10 +238,14 @@ void handleRoot() {
   webServer.sendContent(F("<label>Password</label><input type='password' name='pass' placeholder='unchanged'>"));
   webServer.sendContent(F("</div><div class='card'><div class='h'>Google Sheets</div>"));
   webServer.sendContent(F("<label>Script ID</label><input name='sheets' value='")); webServer.sendContent(htmlEscape(cfg_sheets_id)); webServer.sendContent(F("'>"));
+  webServer.sendContent(F("</div><div class='card'><div class='h'>Firmware Update</div>"));
+  webServer.sendContent(F("<label>Firmware URL (.bin)</label><input name='ota' value='")); webServer.sendContent(htmlEscape(cfg_ota_url)); webServer.sendContent(F("'>"));
+  webServer.sendContent(F("<div class='row' style='margin-top:6px'><span class='lbl'>Current Version</span><span class='val'>")); webServer.sendContent(FW_VERSION); webServer.sendContent(F("</span></div>"));
   webServer.sendContent(F("</div><button type='submit' class='btn btn-s'>Save &amp; Apply</button></form>"));
+  // Actions card
   webServer.sendContent(F("<div class='card'><div class='h'>Actions</div>"
     "<form method='POST' action='/update'><button type='submit' class='btn btn-s' "
-    "onclick=\"return confirm('Update firmware from server?')\">Update Firmware</button></form>"
+    "onclick=\"return confirm('Flash firmware now?')\">&#128640; Flash Firmware Now</button></form>"
     "<form method='POST' action='/sendip'><button type='submit' class='btn btn-s' "
     "style='background:linear-gradient(135deg,#3b82f6,#8b5cf6);margin-top:8px' "
     "onclick=\"return confirm('Send IP via MQTT?')\">Send IP via MQTT</button></form>"
@@ -260,6 +266,8 @@ void handleSave() {
   if (webServer.hasArg("pass") && webServer.arg("pass").length() > 0)
     strncpy(cfg_mqtt_pass, webServer.arg("pass").c_str(), sizeof(cfg_mqtt_pass) - 1);
   if (webServer.hasArg("sheets")) strncpy(cfg_sheets_id, webServer.arg("sheets").c_str(), sizeof(cfg_sheets_id) - 1);
+  if (webServer.hasArg("ota") && webServer.arg("ota").length() > 0)
+    strncpy(cfg_ota_url, webServer.arg("ota").c_str(), sizeof(cfg_ota_url) - 1);
   saveConfig();
   mqttClient.disconnect();
   applyConfig();
@@ -402,13 +410,14 @@ void setupOTA() {
 
 void checkHttpOTA() {
   if (WiFi.status() != WL_CONNECTED) return;
+  if (strlen(cfg_ota_url) == 0) { Serial.println("HTTP OTA: No URL configured"); return; }
 
-  Serial.printf("HTTP OTA: Checking %s ...\n", OTA_URL);
+  Serial.printf("HTTP OTA: Checking %s ...\n", cfg_ota_url);
   WiFiClient otaClient;
   ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
   ESPhttpUpdate.rebootOnUpdate(true);
 
-  t_httpUpdate_return ret = ESPhttpUpdate.update(otaClient, OTA_URL, FW_VERSION);
+  t_httpUpdate_return ret = ESPhttpUpdate.update(otaClient, cfg_ota_url, FW_VERSION);
 
   switch (ret) {
     case HTTP_UPDATE_FAILED:
