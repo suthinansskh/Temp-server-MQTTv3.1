@@ -10,13 +10,16 @@ load_dotenv(PROJECT_ROOT / ".env")
 DB_PATH = Path(os.getenv("IOT_DB_PATH", PROJECT_ROOT / "server" / "data" / "iot.sqlite3"))
 DASHBOARD_PATH = PROJECT_ROOT / "dashboard.html"
 
-MQTT_HOST = os.getenv("IOT_MQTT_HOST", "14.11.0.225")
-MQTT_PORT = int(os.getenv("IOT_MQTT_PORT", "1883"))
-MQTT_USERNAME = os.getenv("IOT_MQTT_USERNAME", "")
-MQTT_PASSWORD = os.getenv("IOT_MQTT_PASSWORD", "")
+MQTT_HOST = os.getenv("IOT_MQTT_HOST", "4bdec66bf5984176a4d9eba86f41c7e9.s1.eu.hivemq.cloud")
+MQTT_PORT = int(os.getenv("IOT_MQTT_PORT", "8883"))
+MQTT_USERNAME = os.getenv("IOT_MQTT_USERNAME", "admin")
+MQTT_PASSWORD = os.getenv("IOT_MQTT_PASSWORD", "Admin10700")
+MQTT_TLS = os.getenv("IOT_MQTT_TLS", "true").lower() in ("1", "true", "yes")
 MQTT_CLIENT_ID = os.getenv("IOT_MQTT_CLIENT_ID", "iot-backend")
 
 MQTT_SUBSCRIPTIONS = [
+    ("factory/#", 0),
+    ("factory/+/ip/+", 0),
     ("hospital/temp/+", 1),
     ("hospital/status/+", 1),
     ("hospital/devices/+/telemetry", 1),

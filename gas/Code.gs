@@ -8,6 +8,16 @@ var SPREADSHEET_ID = "1DnSh2ZQLsLzNGqEMfiIeCDJEEEPrEwQEo0VSeDbB9Bo";
 var LOG_BUFFER_KEY = "INGEST_BUFFER";
 var LOG_FLUSH_SIZE = 1;
 
+/**
+ * Run this ONCE from the GAS editor (Run → setupScriptProperties)
+ * to install the ingest API key that the backend uses to authenticate.
+ * Key must match IOT_GAS_API_KEY in server/.env
+ */
+function setupScriptProperties() {
+  PropertiesService.getScriptProperties().setProperty("INGEST_API_KEY", "ssk-iot-2026-gas");
+  Logger.log("INGEST_API_KEY set successfully.");
+}
+
 var THRESHOLDS = {
   default: { min: 2.0, max: 8.0 },
   'CHEMO': { min: 2.0, max: 8.0 },

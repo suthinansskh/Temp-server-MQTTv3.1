@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
 import threading
 from typing import Any
 
@@ -17,6 +18,8 @@ class MqttIngestService:
     def __init__(self, hub: RealtimeHub) -> None:
         self._hub = hub
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=settings.MQTT_CLIENT_ID)
+        if settings.MQTT_TLS:
+            self._client.tls_set(cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLS_CLIENT)
         if settings.MQTT_USERNAME:
             self._client.username_pw_set(settings.MQTT_USERNAME, settings.MQTT_PASSWORD)
         self._client.on_connect = self._on_connect
@@ -65,6 +68,11 @@ class MqttIngestService:
         kind, device_id = self._classify_topic(message.topic)
         if not kind or not device_id:
             return
+        if kind == "ip":
+            device = database.update_device_status(device_id, True, payload)
+            if device:
+                self._hub.broadcast_from_thread({"type": "status", "device": device})
+            return
         if kind == "telemetry":
             normalized = self._normalize_telemetry(device_id, payload)
             if normalized is None:
@@ -81,6 +89,14 @@ class MqttIngestService:
 
     def _classify_topic(self, topic: str) -> tuple[str | None, str | None]:
         parts = topic.split("/")
+        # factory/{zone}/temp/{device}  (HiveMQ dashboard format)
+        if parts[0] == "factory" and len(parts) >= 4 and parts[2] == "temp":
+            device_id = f"{parts[1]}/{parts[3]}"
+            return "telemetry", device_id
+        # factory/{zone}/ip/{device}  (IP announcement from ESP)
+        if parts[0] == "factory" and len(parts) >= 4 and parts[2] == "ip":
+            device_id = f"{parts[1]}/{parts[3]}"
+            return "ip", device_id
         if parts[:2] == ["hospital", "temp"] and len(parts) >= 3:
             return "telemetry", parts[2]
         if parts[:2] == ["hospital", "status"] and len(parts) >= 3:

@@ -85,6 +85,7 @@ def insert_telemetry(payload: dict[str, Any]) -> dict[str, Any]:
             "temp": temp_c,
             "name": name,
             "zone": normalize_zone(zone),
+            "ip": payload.get("ip", ""),
             "api_key": settings.GAS_API_KEY,
         }
         connection.execute(

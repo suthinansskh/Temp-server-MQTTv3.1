@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sisaket Hospital - Cold Chain Dashboard</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="tailwind.css">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Outfit', sans-serif; background: #0f172a; color: #f8fafc; overflow-x: hidden; }
@@ -297,11 +297,24 @@ function progressColor(status) {
   return map[status] || 'bg-slate-700';
 }
 
+function escJsString(s) {
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
+}
+
+const cssEscape = (window.CSS && typeof window.CSS.escape === 'function')
+  ? window.CSS.escape.bind(window.CSS)
+  : (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, (ch) => `\\${ch.charCodeAt(0).toString(16)} `);
+
 function createCardHTML(key, dev) {
   const status = getStatus(dev);
   const ringClass = status === 'critical' ? 'ring-alert' : '';
+  const keyJs = escJsString(key);
   return `
-    <div id="card-${CSS.escape(key)}" class="glass rounded-2xl p-4 card-enter cursor-pointer hover:border-cyan-500/30 transition-all relative overflow-hidden ${ringClass}" data-zone="${dev.zone}" data-key="${key}" onclick="openIPModal('${escHtml(key)}')">
+    <div id="card-${cssEscape(key)}" class="glass rounded-2xl p-4 card-enter cursor-pointer hover:border-cyan-500/30 transition-all relative overflow-hidden ${ringClass}" data-zone="${escHtml(dev.zone)}" data-key="${escHtml(key)}" onclick="openIPModal('${keyJs}')">
       <div class="flex items-start justify-between mb-3">
         <div class="flex items-center gap-2 min-w-0">
           <div class="flex-shrink-0 w-2.5 h-2.5 rounded-full ${statusIndicator(status)} mt-1"></div>
@@ -322,8 +335,8 @@ function createCardHTML(key, dev) {
       </div>
       <div class="flex justify-end mt-2 mb-1">
         ${deviceIPs[key]
-          ? `<button onclick="event.stopPropagation(); connectDevice('${escHtml(key)}')" class="flex items-center gap-1 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 border border-cyan-500/30 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors" title="${escHtml(deviceIPs[key])}">&#128279; CONNECT</button>`
-          : `<button onclick="event.stopPropagation(); openIPModal('${escHtml(key)}')" class="flex items-center gap-1 bg-slate-700/50 hover:bg-slate-600/50 text-slate-400 border border-slate-600/50 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors">&#9881; SET IP</button>`
+          ? `<button onclick="event.stopPropagation(); connectDevice('${keyJs}')" class="flex items-center gap-1 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 border border-cyan-500/30 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors" title="${escHtml(deviceIPs[key])}">&#128279; CONNECT</button>`
+          : `<button onclick="event.stopPropagation(); openIPModal('${keyJs}')" class="flex items-center gap-1 bg-slate-700/50 hover:bg-slate-600/50 text-slate-400 border border-slate-600/50 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors">&#9881; SET IP</button>`
         }
       </div>
       <div class="absolute bottom-0 left-0 right-0 h-1 bg-slate-800"><div class="h-full ${progressColor(status)} transition-all duration-1000" style="width:${progressWidth(dev)}%"></div></div>
@@ -349,7 +362,7 @@ function renderGrid() {
 function updateCard(key) {
   const dev = devices[key];
   if (!dev) return;
-  const el = document.getElementById('card-' + CSS.escape(key));
+  const el = document.getElementById('card-' + cssEscape(key));
   if (!el) { renderGrid(); return; }
 
   const status = getStatus(dev);
@@ -512,7 +525,7 @@ function startMonitoring() {
   setInterval(() => {
     // Refresh time labels
     for (const key of Object.keys(devices)) {
-      const el = document.getElementById('card-' + CSS.escape(key));
+      const el = document.getElementById('card-' + cssEscape(key));
       if (el) {
         const timeEl = el.querySelector('.el-time');
         if (timeEl) timeEl.textContent = timeSince(devices[key].lastSeen);
@@ -523,11 +536,6 @@ function startMonitoring() {
     }
   }, 5000);
   updateClock();
-}
-
-// Tailwind breakpoints
-if (typeof tailwind !== 'undefined') {
-  tailwind.config = { theme: { screens: { 'xs':'420px','sm':'640px','md':'768px','lg':'1024px','xl':'1280px' } } };
 }
 </script>
 </body>

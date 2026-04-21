@@ -80,6 +80,11 @@ def device_view() -> FileResponse:
     return FileResponse(settings.PROJECT_ROOT / "device.html")
 
 
+@app.get("/tailwind.css")
+def tailwind_css() -> FileResponse:
+    return FileResponse(settings.PROJECT_ROOT / "tailwind.css", media_type="text/css")
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
