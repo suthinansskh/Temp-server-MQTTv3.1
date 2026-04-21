@@ -417,6 +417,7 @@ function updateStats() {
   const critBox = document.getElementById('stat-crit-box');
   if (crit > 0) critBox.classList.add('ring-alert');
   else critBox.classList.remove('ring-alert');
+  renderFilterBar();
 }
 
 // ============================================================
@@ -424,10 +425,12 @@ function updateStats() {
 // ============================================================
 function renderFilterBar() {
   const bar = document.getElementById('filter-bar');
-  let html = `<button onclick="setFilter('ALL')" class="filter-btn px-4 py-1.5 rounded-xl text-xs font-bold ${activeFilter === 'ALL' ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30' : 'bg-slate-700/50 text-slate-400 border border-transparent hover:bg-slate-700'}" data-zone="ALL">All Zones</button>`;
+  const totalCount = Object.keys(devices).length;
+  let html = `<button onclick="setFilter('ALL')" class="filter-btn px-4 py-1.5 rounded-xl text-xs font-bold ${activeFilter === 'ALL' ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30' : 'bg-slate-700/50 text-slate-400 border border-transparent hover:bg-slate-700'}" data-zone="ALL">All Zones <span class="ml-1 px-1.5 py-0.5 rounded-md text-[10px] ${activeFilter === 'ALL' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-600/60 text-slate-400'}">${totalCount}</span></button>`;
   Array.from(zones).sort().forEach(z => {
     const active = activeFilter === z;
-    html += `<button onclick="setFilter('${escHtml(z)}')" class="filter-btn px-4 py-1.5 rounded-xl text-xs font-bold ${active ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30' : 'bg-slate-700/50 text-slate-400 border border-transparent hover:bg-slate-700'}" data-zone="${escHtml(z)}">${escHtml(z)}</button>`;
+    const count = Object.values(devices).filter(d => d.zone === z).length;
+    html += `<button onclick="setFilter('${escHtml(z)}')" class="filter-btn px-4 py-1.5 rounded-xl text-xs font-bold ${active ? 'bg-cyan-600/20 text-cyan-400 border border-cyan-500/30' : 'bg-slate-700/50 text-slate-400 border border-transparent hover:bg-slate-700'}" data-zone="${escHtml(z)}">${escHtml(z)} <span class="ml-1 px-1.5 py-0.5 rounded-md text-[10px] ${active ? 'bg-cyan-500/20 text-cyan-300' : 'bg-slate-600/60 text-slate-400'}">${count}</span></button>`;
   });
   bar.innerHTML = html;
 }
